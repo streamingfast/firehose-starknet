@@ -260,7 +260,7 @@ func convertL1HandlerTransactionReceipt(r *snRPC.L1HandlerTransactionReceipt) *p
 	return &pbstarknet.TransactionWithReceipt_L1HandlerTransactionReceipt{
 		L1HandlerTransactionReceipt: &pbstarknet.L1HandlerTransactionReceipt{
 			Type:            string(r.Type),
-			MessageHash:     r.MessagesSent,????
+			MessageHash:     r.MessageHash,
 			TransactionHash: r.TransactionHash.String(),
 			ActualFee: &pbstarknet.ActualFee{
 				Amount: r.ActualFee.Amount.String(),
@@ -279,8 +279,8 @@ func convertL1HandlerTransactionReceipt(r *snRPC.L1HandlerTransactionReceipt) *p
 func convertDeclareTransactionReceipt(r *snRPC.DeclareTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeclareTransactionReceipt {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionReceipt{
 		DeclareTransactionReceipt: &pbstarknet.DeclareTransactionReceipt{
-			Type:               string(r.Type),
-			TransactionHash:    r.TransactionHash.String(),
+			Type:            string(r.Type),
+			TransactionHash: r.TransactionHash.String(),
 			ActualFee: &pbstarknet.ActualFee{
 				Amount: r.ActualFee.Amount.String(),
 				Unit:   string(r.ActualFee.Unit),
@@ -298,9 +298,9 @@ func convertDeclareTransactionReceipt(r *snRPC.DeclareTransactionReceipt) *pbsta
 func convertDeployTransactionReceipt(r *snRPC.DeployTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeployTransactionReceipt {
 	return &pbstarknet.TransactionWithReceipt_DeployTransactionReceipt{
 		DeployTransactionReceipt: &pbstarknet.DeployTransactionReceipt{
-			Type:               string(r.Type),
-			ContractAddress:    r.ContractAddress.String(),
-			TransactionHash:    r.TransactionHash.String(),
+			Type:            string(r.Type),
+			ContractAddress: r.ContractAddress.String(),
+			TransactionHash: r.TransactionHash.String(),
 			ActualFee: &pbstarknet.ActualFee{
 				Amount: r.ActualFee.Amount.String(),
 				Unit:   string(r.ActualFee.Unit),
@@ -315,7 +315,7 @@ func convertDeployTransactionReceipt(r *snRPC.DeployTransactionReceipt) *pbstark
 	}
 }
 
-func convertDeployAccountTransactionReceipt(r *snRPC.DeployAccountTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionReceipt{
+func convertDeployAccountTransactionReceipt(r *snRPC.DeployAccountTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionReceipt {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionReceipt{
 		DeployAccountTransactionReceipt: &pbstarknet.DeployAccountTransactionReceipt{
 			Type:               string(r.Type),
