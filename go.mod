@@ -4,7 +4,10 @@ go 1.22.0
 
 toolchain go1.22.3
 
-replace github.com/NethermindEth/starknet.go => github.com/streamingfast/starknet.go v0.0.0-20240611192319-738f3725b214
+replace (
+	github.com/NethermindEth/starknet.go => github.com/streamingfast/starknet.go v0.0.0-20240611192319-738f3725b214
+	github.com/jhump/protoreflect => github.com/streamingfast/protoreflect v0.0.0-20231205191344-4b629d20ce8d
+)
 
 require (
 	github.com/NethermindEth/juno v0.3.1
@@ -49,6 +52,7 @@ require (
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/blendle/zapdriver v1.3.2-0.20200203083823-9200777f8a3d // indirect
 	github.com/bobg/go-generics/v3 v3.4.0 // indirect
+	github.com/bufbuild/protocompile v0.4.0 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chzyer/readline v1.5.0 // indirect
