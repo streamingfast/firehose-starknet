@@ -54,7 +54,7 @@ jobs:
           echo "##[set-output name=release_train;]$(echo ${GITHUB_REF#refs/heads/release/})"
 
       - name: Build Starknet
-        working-directory: ./Starknet
+        working-directory: ./starknet
         run: go build -v -ldflags "-X main.version=${{ github.event.ref }} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%MZ)" -o ../firestarknet ./cmd/firestarknet
 
       - name: Log in to the Container registry
