@@ -1,0 +1,301 @@
+syntax = "proto3";
+package sf.starknet.type.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1;pbstarknet";
+
+message Block {
+  string block_hash = 1;
+  uint64 block_number = 2;
+  string l1_da_mode = 3;
+
+  string new_root = 4;
+  string parent_hash = 5;
+  string sequencer_address = 6;
+  string starknet_version = 7;
+  string status = 8;
+  uint64 timestamp = 9;
+
+  L1DataGasPrice l1_data_gas_price = 20;
+  L1GasPrice l1_gas_price = 21;
+
+  repeated TransactionWithReceipt transaction = 30;
+
+}
+
+message L1DataGasPrice {
+  string price_in_fri = 1;
+  string price_in_wei = 2;
+}
+
+message L1GasPrice {
+  string price_in_fri = 1;
+  string price_in_wei = 2;
+}
+
+message TransactionWithReceipt {
+
+  oneof transaction {
+    InvokeTransactionV0 invoke_transaction_V0 = 1;
+    InvokeTransactionV1 invoke_transaction_V1 = 2;
+    InvokeTransactionV3 invoke_transaction_V3 = 3;
+    L1HandlerTransaction l1_handler_transaction = 4;
+    DeclareTransactionV0 declare_transaction_V0 = 5;
+    DeclareTransactionV1 declare_transaction_V1 = 6;
+    DeclareTransactionV2 declare_transaction_V2 = 7;
+    DeclareTransactionV3 declare_transaction_V3 = 8;
+    DeployTransactionV0 deploy_transaction_V0 = 9;
+    DeployAccountTransactionV0 deploy_account_transaction_V0 = 10;
+    DeployAccountTransactionV3 deploy_account_transaction_V3 = 11;
+  }
+
+  oneof receipt {
+    InvokeTransactionReceipt invoke_transaction_receipt = 20;
+    L1HandlerTransactionReceipt l1_handler_transaction_receipt = 21;
+    DeclareTransactionReceipt declare_transaction_receipt = 22;
+    DeployTransactionReceipt deploy_transaction_receipt = 23;
+    DeployAccountTransactionReceipt deploy_account_transaction_receipt = 24;
+
+  }
+
+}
+
+message InvokeTransactionReceipt{
+  string type = 1;
+  string transaction_hash = 2;
+  ActualFee actual_fee = 3;
+  string execution_status = 4;
+  string finality_status = 5;
+  repeated MessagesSent  messages_sent = 6;
+  string revert_reason = 7;
+  repeated Event events = 8;
+  ExecutionResources execution_resources = 9;
+
+}
+
+message L1HandlerTransactionReceipt{
+  string type = 1;
+  string message_hash = 2;
+  string contract_address = 3;
+  string transaction_hash = 4;
+  ActualFee actual_fee = 5;
+  string execution_status = 6;
+  string finality_status = 7;
+  repeated MessagesSent  messages_sent = 8;
+  string revert_reason = 9;
+  repeated Event events = 10;
+  ExecutionResources execution_resources = 11;
+}
+
+message DeclareTransactionReceipt{
+  string type = 1;
+  string transaction_hash = 2;
+  ActualFee actual_fee = 3;
+  string execution_status = 4;
+  string finality_status = 5;
+  repeated MessagesSent  messages_sent = 6;
+  string revert_reason = 7;
+  repeated Event events = 8;
+  ExecutionResources execution_resources = 9;
+}
+
+message DeployTransactionReceipt{
+  string type = 1;
+  string contract_address = 2;
+  string transaction_hash = 3;
+  ActualFee actual_fee = 4;
+  string execution_status = 5;
+  string finality_status = 6;
+  repeated MessagesSent  messages_sent = 7;
+  string revert_reason = 8;
+  repeated Event events = 9;
+  ExecutionResources execution_resources = 10;
+}
+
+message DeployAccountTransactionReceipt{
+  string type = 1;
+  string contract_address = 2;
+  string transaction_hash = 3;
+  ActualFee actual_fee = 4;
+  string execution_status = 5;
+  string finality_status = 6;
+  repeated MessagesSent  messages_sent = 7;
+  string revert_reason = 8;
+  repeated Event events = 9;
+  ExecutionResources execution_resources = 10;
+
+}
+message MessagesSent {
+  string from_address = 1;
+  string to_address = 2;
+  repeated string payload = 3;
+}
+
+message Event {
+  string from_address = 1;
+  repeated string keys = 2;
+  repeated string data = 3;
+}
+
+message ExecutionResources {
+  DataAvailability data_availability = 1;
+  uint64 steps = 2;
+  uint64 memory_holes = 3;
+  uint64 range_check_builtin_applications = 4;
+  uint64 pedersen_builtin_applications = 5;
+  uint64 poseidon_builtin_applications = 6;
+  uint64 ec_op_builtin_applications = 7;
+  uint64 ecdsa_builtin_applications = 8;
+  uint64 bitwise_builtin_applications = 9;
+  uint64 keccak_builtin_applications = 10;
+  uint64 segment_arena_builtin = 11;
+
+
+}
+
+message InvokeTransactionV0 {
+  string type = 1;
+  string max_fee = 2;
+  string version = 3;
+  repeated string signature = 4;
+  string contract_address = 5;
+  string entry_point_selector = 6;
+  repeated string calldata = 7;
+}
+
+message InvokeTransactionV1 {
+  string type = 1;
+  string sender_address = 2;
+  repeated string calldata = 3;
+  string max_fee = 4;
+  string version = 5;
+  repeated string signature = 6;
+  string nonce = 7;
+}
+
+message InvokeTransactionV3 {
+  string type = 1;
+  string sender_address = 2;
+  repeated string calldata = 3;
+  string version = 4;
+  repeated string signature = 5;
+  string nonce = 6;
+  ResourceBounds resource_bounds = 7;
+  string tip = 8;
+  repeated string paymaster_data = 9;
+  repeated string account_deployment_data = 10;
+  string nonce_data_availability_mode = 11;
+  string fee_data_availability_mode = 12;
+}
+
+message L1HandlerTransaction {
+  string version = 1;
+  string type = 2;
+  string nonce = 3;
+  string contract_address = 4;
+  string entry_point_selector = 5;
+  repeated string calldata = 6;
+}
+
+message DeclareTransactionV0 {
+  string type = 1;
+  string sender_address = 2;
+  string max_fee = 3;
+  string version = 4;
+  repeated string signature = 5;
+  string class_hash = 6;
+}
+
+message DeclareTransactionV1 {
+  string type = 1;
+  string sender_address = 2;
+  string max_fee = 3;
+  string version = 4;
+  repeated string signature = 5;
+  string nonce = 6;
+  string class_hash = 7;
+}
+
+message DeclareTransactionV2 {
+  string type = 1;
+  string sender_address = 2;
+  string max_fee = 3;
+  string version = 4;
+  repeated string signature = 5;
+  string nonce = 6;
+  string class_hash = 7;
+}
+
+message DeclareTransactionV3 {
+  string type = 1;
+  string sender_address = 2;
+  string compiled_class_hash = 3;
+  string version = 4;
+  repeated string signature = 5;
+  string nonce = 6;
+  string class_hash = 7;
+  ResourceBounds resource_bounds = 8;
+  string tip = 9;
+  repeated string paymaster_data = 10;
+  repeated string account_deployment_data = 11;
+  string nonce_data_availability_mode = 12;
+  string fee_data_availability_mode = 13;
+}
+
+message DeployTransactionV0 {
+  string version = 1;
+  string type = 2;
+  string contract_address_salt = 3;
+  repeated string  constructor_calldata = 4;
+  string class_hash = 5;
+}
+
+message DeployAccountTransactionV0 {
+  string type = 1;
+  string max_fee = 2;
+  string version = 3;
+  repeated string signature = 4;
+  string nonce = 5;
+  string contract_address_salt = 6;
+  repeated string constructor_calldata = 7;
+  string class_hash = 8;
+}
+
+message DeployAccountTransactionV3 {
+  string type = 1;
+  string version = 2;
+  repeated string signature = 3;
+  string nonce = 4;
+  string contract_address_salt = 5;
+  string class_hash = 6;
+  ResourceBounds resource_bounds = 7;
+  string tip = 8;
+  repeated string paymaster_data = 9;
+  string nonce_data_availability_mode = 11;
+  string fee_data_availability_mode = 12;
+}
+
+message ResourceBounds {
+  Resource L1Gas = 1;
+  Resource L2Gas = 2;
+}
+
+message Resource {
+  string max_amount = 1;
+  string max_price_per_unit = 2;
+}
+
+message Receipt {
+  ActualFee actual_fee = 1;
+}
+
+message ActualFee {
+  string amount = 1;
+  string unit = 2;
+}
+
+message DataAvailability {
+  uint64 l1_data_gas = 1;
+  uint64 l1_gas = 2;
+}
