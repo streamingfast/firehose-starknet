@@ -22,8 +22,6 @@ type Fetcher struct {
 	latestBlockRetryInterval time.Duration
 	logger                   *zap.Logger
 	latestBlockNum           uint64
-	root                     string
-	rootNNumber              uint64
 }
 
 func NewFetcher(rpcClients []*snRPC.Provider, fetchInterval time.Duration, latestBlockRetryInterval time.Duration, logger *zap.Logger) *Fetcher {
@@ -64,15 +62,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching block %d: %w", requestBlockNum, err)
 	}
-
-	if f.root != blockWithReceipts.NewRoot.String() {
-		f.root = blockWithReceipts.NewRoot.String()
-		rootNumber, err := f.fetchBlockNumber(ctx, blockWithReceipts.NewRoot)
-		if err != nil {
-			return nil, false, fmt.Errorf("fetching block number for root %s: %w", blockWithReceipts.NewRoot.String(), err)
-		}
-		f.rootNNumber = rootNumber
-	}
+	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
 	bstreamBlock, err := convertBlock(blockWithReceipts)
@@ -143,14 +133,8 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 		StarknetVersion:  b.StarknetVersion,
 		Status:           string(b.BlockStatus),
 		Timestamp:        b.Timestamp,
-		L1DataGasPrice: &pbstarknet.L1DataGasPrice{
-			PriceInFri: b.L1DataGasPrice.PriceInFRI.String(),
-			PriceInWei: b.L1DataGasPrice.PriceInWei.String(),
-		},
-		L1GasPrice: &pbstarknet.L1GasPrice{
-			PriceInFri: b.L1GasPrice.PriceInFRI.String(),
-			PriceInWei: b.L1GasPrice.PriceInWei.String(),
-		},
+		L1DataGasPrice:   convertL1DataGasPrice(b.L1DataGasPrice),
+		L1GasPrice:       convertL1GasPrice(b.L1GasPrice),
 	}
 
 	var transactions []*pbstarknet.TransactionWithReceipt
@@ -167,31 +151,67 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 		return nil, fmt.Errorf("unable to create anypb: %w", err)
 	}
 
+	var parentBlockNum uint64
+	if block.BlockNumber > 0 {
+		parentBlockNum = block.BlockNumber - 1
+	}
+
+	libNum := parentBlockNum
+
 	bstreamBlock := &pbbstream.Block{
 		Number:    block.BlockNumber,
 		Id:        block.BlockHash,
 		ParentId:  block.ParentHash,
 		Timestamp: timestamppb.New(time.Unix(int64(block.Timestamp), 0)),
-		LibNum:    block.BlockNumber,
-		ParentNum: block.BlockNumber - 1,
+		LibNum:    libNum,
+		ParentNum: parentBlockNum,
 		Payload:   anyBlock,
 	}
 
 	return bstreamBlock, nil
 }
 
+func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1DataGasPrice {
+	f := "0x0"
+	if l.PriceInFRI != nil {
+		f = l.PriceInFRI.String()
+	}
+	w := "0x0"
+	if l.PriceInWei != nil {
+		w = l.PriceInWei.String()
+	}
+	return &pbstarknet.L1DataGasPrice{
+		PriceInFri: f,
+		PriceInWei: w,
+	}
+}
+func convertL1GasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
+	f := "0x0"
+	if l.PriceInFRI != nil {
+		f = l.PriceInFRI.String()
+	}
+	w := "0x0"
+	if l.PriceInWei != nil {
+		w = l.PriceInWei.String()
+	}
+	return &pbstarknet.L1GasPrice{
+		PriceInFri: f,
+		PriceInWei: w,
+	}
+}
+
 func convertTransactionWithReceipt(tx snRPC.TransactionWithReceipt) (*pbstarknet.TransactionWithReceipt, error) {
 	t := &pbstarknet.TransactionWithReceipt{}
-	convertAndSetTransaction(t, tx.Transaction)
+	convertAndSetTransaction(t, tx.Transaction.Transaction)
 
-	convertAndSetReceipt(t, tx.Receipt)
+	convertAndSetReceipt(t, tx.Receipt.TransactionReceipt)
 
 	return t, nil
 }
 
 func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in snRPC.Transaction) {
 	switch i := in.(type) {
-	case *snRPC.InvokeTxnV0:
+	case snRPC.InvokeTxnV0:
 		out.Transaction = convertInvokeTransactionV0(i)
 	case snRPC.InvokeTxnV1:
 		out.Transaction = convertInvokeTransactionV1(i)
@@ -214,25 +234,25 @@ func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in snRPC.T
 	case snRPC.DeployAccountTxnV3:
 		out.Transaction = convertDeployAccountTransactionV3(i)
 	default:
-		panic(fmt.Errorf("unknown transaction type %q", in.GetType()))
+		panic(fmt.Errorf("unknown transaction type %T", in))
 	}
 	return
 }
 
 func convertAndSetReceipt(out *pbstarknet.TransactionWithReceipt, in snRPC.TransactionReceipt) {
 	switch r := in.(type) {
-	case *snRPC.InvokeTransactionReceipt:
-		out.Receipt = convertInvokeTransactionReceipt(r)
-	case *snRPC.L1HandlerTransactionReceipt:
-		out.Receipt = convertL1HandlerTransactionReceipt(r)
-	case *snRPC.DeclareTransactionReceipt:
-		out.Receipt = convertDeclareTransactionReceipt(r)
-	case *snRPC.DeployTransactionReceipt:
-		out.Receipt = convertDeployTransactionReceipt(r)
-	case *snRPC.DeployAccountTransactionReceipt:
-		out.Receipt = convertDeployAccountTransactionReceipt(r)
+	case snRPC.InvokeTransactionReceipt:
+		out.Receipt = convertInvokeTransactionReceipt(&r)
+	case snRPC.L1HandlerTransactionReceipt:
+		out.Receipt = convertL1HandlerTransactionReceipt(&r)
+	case snRPC.DeclareTransactionReceipt:
+		out.Receipt = convertDeclareTransactionReceipt(&r)
+	case snRPC.DeployTransactionReceipt:
+		out.Receipt = convertDeployTransactionReceipt(&r)
+	case snRPC.DeployAccountTransactionReceipt:
+		out.Receipt = convertDeployAccountTransactionReceipt(&r)
 	default:
-		panic(fmt.Errorf("unknown receipt type %v", in))
+		panic(fmt.Errorf("unknown receipt type %T", in))
 	}
 	return
 }
@@ -384,7 +404,7 @@ func convertMessageSent(msg []snRPC.MsgToL1) []*pbstarknet.MessagesSent {
 
 }
 
-func convertInvokeTransactionV0(tx *snRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransaction_V0 {
+func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransaction_V0 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransaction_V0{
 		InvokeTransaction_V0: &pbstarknet.InvokeTransactionV0{
 			Type:               string(tx.GetType()),

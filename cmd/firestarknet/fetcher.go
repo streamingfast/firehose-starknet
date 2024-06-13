@@ -70,7 +70,7 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 
 		poller := blockpoller.New(
 			rpcFetcher,
-			blockpoller.NewFireBlockHandler("type.googleapis.com/sf.cosmos.type.v2.Block"),
+			blockpoller.NewFireBlockHandler("type.googleapis.com/sf.starknet.type.v1.Block"),
 			blockpoller.WithStoringState(stateDir),
 			blockpoller.WithLogger(logger),
 		)
