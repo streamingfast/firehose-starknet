@@ -9,6 +9,7 @@ import (
 	snRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/spf13/cobra"
 	"github.com/streamingfast/cli/sflags"
+	goRPC "github.com/streamingfast/eth-go/rpc"
 	firecore "github.com/streamingfast/firehose-core"
 	"github.com/streamingfast/firehose-core/blockpoller"
 	"github.com/streamingfast/logging"
@@ -23,7 +24,9 @@ func NewFetchCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 		RunE:  fetchRunE(logger, tracer),
 	}
 
-	cmd.Flags().StringArray("endpoints", []string{"https://sentry.tm.injective.network:443"}, "interval between fetch")
+	cmd.Flags().StringArray("endpoints", []string{"https://sentry.tm.injective.network:443"}, "List of endpoints to use to fetch different method calls")
+	cmd.Flags().StringArray("eth-endpoints", []string{"https://sentry.tm.injective.network:443"}, "List of eth clients to use to fetch the LIB")
+	cmd.Flags().String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum")
 	cmd.Flags().String("state-dir", "/data/poller", "interval between fetch")
 	cmd.Flags().Duration("interval-between-fetch", 0, "interval between fetch")
 	cmd.Flags().Duration("latest-block-retry-interval", time.Second, "interval between fetch")
@@ -36,6 +39,8 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 	return func(cmd *cobra.Command, args []string) (err error) {
 		ctx := cmd.Context()
 		rpcEndpoints := sflags.MustGetStringArray(cmd, "endpoints")
+		ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
+		fetchLIBContractAddress := sflags.MustGetString(cmd, "fetch-lib-contract-address")
 		stateDir := sflags.MustGetString(cmd, "state-dir")
 		startBlock, err := strconv.ParseUint(args[0], 10, 64)
 		if err != nil {
@@ -62,11 +67,15 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 			rpcClients = append(rpcClients, client)
 		}
 
+		ethRpcEndpoints := make([]*goRPC.Client, 0, len(ethEndpoints))
+		for _, ethEndpoint := range ethEndpoints {
+			client := goRPC.NewClient(ethEndpoint)
+			ethRpcEndpoints = append(ethRpcEndpoints, client)
+		}
+		starkClients := rpc.NewRPCClient(ethRpcEndpoints)
+
 		latestBlockRetryInterval := sflags.MustGetDuration(cmd, "latest-block-retry-interval")
-
-		var rpcFetcher blockpoller.BlockFetcher
-
-		rpcFetcher = rpc.NewFetcher(rpcClients, fetchInterval, latestBlockRetryInterval, logger)
+		rpcFetcher := rpc.NewFetcher(rpcClients, starkClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
 
 		poller := blockpoller.New(
 			rpcFetcher,

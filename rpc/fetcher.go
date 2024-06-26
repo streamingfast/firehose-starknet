@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
@@ -11,25 +12,59 @@ import (
 	snRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/hashicorp/go-multierror"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
+	"github.com/streamingfast/eth-go"
+	goRPC "github.com/streamingfast/eth-go/rpc"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+type RPCClient[C any] struct {
+	clients []C
+}
+
+func NewRPCClient[C any](clients []C) *RPCClient[C] {
+	return &RPCClient[C]{clients: clients}
+}
+
+func (r *RPCClient[C]) WithClient(ctx context.Context, f func(client C) error) error {
+	var errs error
+	for _, client := range r.clients {
+		err := f(client)
+		if err != nil {
+			errs = multierror.Append(errs, err)
+			continue
+		}
+		return errs
+	}
+	return nil
+}
+
 type Fetcher struct {
 	rpcClients               []*snRPC.Provider
+	starkClients             *RPCClient[*goRPC.Client]
 	fetchInterval            time.Duration
 	latestBlockRetryInterval time.Duration
 	logger                   *zap.Logger
 	latestBlockNum           uint64
+
+	ethCallLIBParams goRPC.CallParams
 }
 
-func NewFetcher(rpcClients []*snRPC.Provider, fetchInterval time.Duration, latestBlockRetryInterval time.Duration, logger *zap.Logger) *Fetcher {
+func NewFetcher(
+	rpcClients []*snRPC.Provider,
+	starkClients *RPCClient[*goRPC.Client],
+	fetchLIBContractAddress string,
+	fetchInterval time.Duration,
+	latestBlockRetryInterval time.Duration,
+	logger *zap.Logger) *Fetcher {
 	return &Fetcher{
 		rpcClients:               rpcClients,
+		starkClients:             starkClients,
 		fetchInterval:            fetchInterval,
 		latestBlockRetryInterval: latestBlockRetryInterval,
 		logger:                   logger,
+		ethCallLIBParams:         newEthCallLIBParams(fetchLIBContractAddress),
 	}
 }
 
@@ -65,12 +100,12 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
-	//todo: fix receipt
-	//todo: getLib from L1
-	// call: stateBlockNumber
-	// contract: https://etherscan.io/address/0xc662c410c0ecf747543f5ba90660f6abebd9c8c4#readProxyContract#F15
-	// call every x minutes
+	lib, err := f.fetchLIB(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("fetching LIB: %w", err)
+	}
 
+	//todo: fix receipt
 	//todo: track state update
 	// u, err := f.rpcClients[0].StateUpdate(ctx, snRPC.BlockID(requestBlockNum))
 	// if err != nil {
@@ -83,6 +118,8 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
 	}
+
+	bstreamBlock.LibNum = lib
 
 	return bstreamBlock, false, nil
 
@@ -118,6 +155,34 @@ func (f *Fetcher) fetchLatestBlockNum(ctx context.Context) (uint64, error) {
 	return 0, errs
 }
 
+func (f *Fetcher) fetchLIB(ctx context.Context) (uint64, error) {
+	var libNum *uint64
+	err := f.starkClients.WithClient(ctx, func(client *goRPC.Client) error {
+		blockNum, err := client.Call(ctx, f.ethCallLIBParams)
+		if err != nil {
+			f.logger.Warn("failed to fetch latest block num, trying next client", zap.Error(err))
+			return err
+		}
+
+		b, err := strconv.ParseUint(blockNum, 10, 64)
+		if err != nil {
+			return fmt.Errorf("unable to parse block number %s: %w", blockNum, err)
+		}
+		libNum = &b
+		return nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	if libNum == nil {
+		return 0, fmt.Errorf("unable to fetch LIB")
+	}
+
+	return *libNum, nil
+}
+
 func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*snRPC.BlockWithReceipts, error) {
 	var errs error
 	for _, rpcClient := range f.rpcClients {
@@ -134,6 +199,13 @@ func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*snRP
 	}
 
 	return nil, errs
+}
+
+func newEthCallLIBParams(contractAddress string) goRPC.CallParams {
+	return goRPC.CallParams{
+		Data: eth.MustNewMethodDef("stateBlockNumber() (int256)").NewCall().MustEncode(),
+		To:   eth.MustNewAddress(contractAddress),
+	}
 }
 
 func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
