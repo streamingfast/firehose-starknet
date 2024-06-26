@@ -24,8 +24,8 @@ func NewFetchCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 		RunE:  fetchRunE(logger, tracer),
 	}
 
-	cmd.Flags().StringArray("stark-endpoints", []string{"https://sentry.tm.injective.network:443"}, "List of endpoints to use to fetch different method calls")
-	cmd.Flags().StringArray("eth-endpoints", []string{"https://sentry.tm.injective.network:443"}, "List of Ethereum clients to use to fetch the LIB")
+	cmd.Flags().StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
+	cmd.Flags().StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
 	cmd.Flags().String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum")
 	cmd.Flags().String("state-dir", "/data/poller", "interval between fetch")
 	cmd.Flags().Duration("interval-between-fetch", 0, "interval between fetch")
@@ -38,7 +38,7 @@ func NewFetchCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecutor {
 	return func(cmd *cobra.Command, args []string) (err error) {
 		ctx := cmd.Context()
-		rpcEndpoints := sflags.MustGetStringArray(cmd, "stark-endpoints")
+		rpcEndpoints := sflags.MustGetStringArray(cmd, "starknet-endpoints")
 		ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
 		fetchLIBContractAddress := sflags.MustGetString(cmd, "fetch-lib-contract-address")
 		stateDir := sflags.MustGetString(cmd, "state-dir")

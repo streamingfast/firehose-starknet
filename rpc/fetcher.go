@@ -3,13 +3,14 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"strconv"
+	"strings"
 	"time"
 
 	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
 
 	"github.com/NethermindEth/juno/core/felt"
 	snRPC "github.com/NethermindEth/starknet.go/rpc"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/hashicorp/go-multierror"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/eth-go"
@@ -105,6 +106,10 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 		return nil, false, fmt.Errorf("fetching LIB: %w", err)
 	}
 
+	if lib >= requestBlockNum {
+		lib = requestBlockNum - 1
+	}
+
 	//todo: fix receipt
 	//todo: track state update
 	// u, err := f.rpcClients[0].StateUpdate(ctx, snRPC.BlockID(requestBlockNum))
@@ -164,10 +169,12 @@ func (f *Fetcher) fetchLIB(ctx context.Context) (uint64, error) {
 			return err
 		}
 
-		b, err := strconv.ParseUint(blockNum, 10, 64)
+		blockNum = cleanBlockNum(blockNum)
+		b, err := hexutil.DecodeUint64(blockNum)
 		if err != nil {
 			return fmt.Errorf("unable to parse block number %s: %w", blockNum, err)
 		}
+		fmt.Println("LIB", b)
 		libNum = &b
 		return nil
 	})
@@ -201,6 +208,13 @@ func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*snRP
 	return nil, errs
 }
 
+func cleanBlockNum(blockNum string) string {
+	blockNum = strings.TrimPrefix(blockNum, "0x")
+	blockNum = strings.TrimLeft(blockNum, "0")
+	blockNum = fmt.Sprintf("0x%s", blockNum)
+	return blockNum
+}
+
 func newEthCallLIBParams(contractAddress string) goRPC.CallParams {
 	return goRPC.CallParams{
 		Data: eth.MustNewMethodDef("stateBlockNumber() (int256)").NewCall().MustEncode(),
@@ -222,7 +236,7 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 		L1GasPrice:       convertL1GasPrice(b.L1GasPrice),
 	}
 
-	var transactions []*pbstarknet.TransactionWithReceipt
+	transactions := make([]*pbstarknet.TransactionWithReceipt, 0, len(b.Transactions))
 	for _, tx := range b.Transactions {
 		t, err := convertTransactionWithReceipt(tx)
 		if err != nil {
@@ -230,6 +244,8 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 		}
 		transactions = append(transactions, t)
 	}
+
+	block.Transaction = transactions
 
 	anyBlock, err := anypb.New(block)
 	if err != nil {
@@ -332,12 +348,34 @@ func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in snRPC.T
 	default:
 		panic(fmt.Errorf("unknown transaction type %T", in))
 	}
-	return
 }
 
 func convertAndSetReceipt(in snRPC.TransactionReceipt) *pbstarknet.TransactionReceipt {
-	common := in.(snRPC.CommonTransactionReceipt)
-	out := &pbstarknet.TransactionReceipt{
+	out := &pbstarknet.TransactionReceipt{}
+	switch r := in.(type) {
+	case snRPC.InvokeTransactionReceipt:
+		// nothing to do
+		out = createCommonTransactionReceipt(snRPC.CommonTransactionReceipt(r))
+	case snRPC.DeclareTransactionReceipt:
+		// nothing to do
+		out = createCommonTransactionReceipt(snRPC.CommonTransactionReceipt(r))
+	case snRPC.L1HandlerTransactionReceipt:
+		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
+		out.MessageHash = string(r.MessageHash)
+	case snRPC.DeployTransactionReceipt:
+		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
+		out.ContractAddress = r.ContractAddress.String()
+	case snRPC.DeployAccountTransactionReceipt:
+		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
+		out.ContractAddress = r.ContractAddress.String()
+	default:
+		panic(fmt.Errorf("unknown receipt type %T", in))
+	}
+	return out
+}
+
+func createCommonTransactionReceipt(common snRPC.CommonTransactionReceipt) *pbstarknet.TransactionReceipt {
+	return &pbstarknet.TransactionReceipt{
 		Type:            string(common.Type),
 		TransactionHash: common.TransactionHash.String(),
 		ActualFee: &pbstarknet.ActualFee{
@@ -351,20 +389,6 @@ func convertAndSetReceipt(in snRPC.TransactionReceipt) *pbstarknet.TransactionRe
 		Events:             convertEvents(common.Events),
 		ExecutionResources: convertExecutionResources(common.ExecutionResources),
 	}
-
-	switch r := in.(type) {
-	case snRPC.InvokeTransactionReceipt, snRPC.DeclareTransactionReceipt:
-		// nothing to do
-	case snRPC.L1HandlerTransactionReceipt:
-		out.MessageHash = string(r.MessageHash)
-	case snRPC.DeployTransactionReceipt:
-		out.ContractAddress = r.ContractAddress.String()
-	case snRPC.DeployAccountTransactionReceipt:
-		out.ContractAddress = r.ContractAddress.String()
-	default:
-		panic(fmt.Errorf("unknown receipt type %T", in))
-	}
-	return out
 }
 
 func convertExecutionResources(r snRPC.ExecutionResources) *pbstarknet.ExecutionResources {
