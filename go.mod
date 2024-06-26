@@ -4,14 +4,12 @@ go 1.22.0
 
 toolchain go1.22.3
 
-replace (
-	github.com/NethermindEth/starknet.go => github.com/streamingfast/starknet.go v0.0.0-20240611192319-738f3725b214
-	github.com/jhump/protoreflect => github.com/streamingfast/protoreflect v0.0.0-20231205191344-4b629d20ce8d
-)
+//github.com/NethermindEth/starknet.go => github.com/streamingfast/starknet.go v0.0.0-20240611192319-738f3725b214
+replace github.com/jhump/protoreflect => github.com/streamingfast/protoreflect v0.0.0-20231205191344-4b629d20ce8d
 
 require (
 	github.com/NethermindEth/juno v0.3.1
-	github.com/NethermindEth/starknet.go v0.7.0
+	github.com/NethermindEth/starknet.go v0.7.1-0.20240614122559-0d2f96428b45
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/spf13/cobra v1.8.0
 	github.com/streamingfast/bstream v0.0.2-0.20240603153252-ec8d37625188

@@ -58,11 +58,25 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 
 	f.logger.Info("fetching block", zap.Uint64("block_num", requestBlockNum))
+	//at this time we getting the most recent accepted block number (L2)
 	blockWithReceipts, err := f.fetchBlock(ctx, requestBlockNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching block %d: %w", requestBlockNum, err)
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
+
+	//todo: fix receipt
+	//todo: getLib from L1
+	// call: stateBlockNumber
+	// contract: https://etherscan.io/address/0xc662c410c0ecf747543f5ba90660f6abebd9c8c4#readProxyContract#F15
+	// call every x minutes
+
+	//todo: track state update
+	// u, err := f.rpcClients[0].StateUpdate(ctx, snRPC.BlockID(requestBlockNum))
+	// if err != nil {
+	//	return nil, false, fmt.Errorf("fetching state update for block %d: %w", requestBlockNum, err)
+	// }
+	// u.StateDiff.StorageDiffs[0].StorageEntries[0].Value.
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
 	bstreamBlock, err := convertBlock(blockWithReceipts)
@@ -126,12 +140,11 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 	block := &pbstarknet.Block{
 		BlockHash:        b.BlockHash.String(),
 		BlockNumber:      b.BlockNumber,
-		L1DaMode:         b.L1DAMode.String(),
+		L1DaMode:         convertL1DAMode(b.L1DAMode),
 		NewRoot:          b.NewRoot.String(),
 		ParentHash:       b.ParentHash.String(),
 		SequencerAddress: b.SequencerAddress.String(),
 		StarknetVersion:  b.StarknetVersion,
-		Status:           string(b.BlockStatus),
 		Timestamp:        b.Timestamp,
 		L1DataGasPrice:   convertL1DataGasPrice(b.L1DataGasPrice),
 		L1GasPrice:       convertL1GasPrice(b.L1GasPrice),
@@ -171,7 +184,18 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 	return bstreamBlock, nil
 }
 
-func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1DataGasPrice {
+func convertL1DAMode(mode snRPC.L1DAMode) pbstarknet.L1_DA_MODE {
+	switch mode {
+	case snRPC.L1DAModeBlob:
+		return pbstarknet.L1_DA_MODE_BLOB
+	case snRPC.L1DAModeCalldata:
+		return pbstarknet.L1_DA_MODE_CALLDATA
+	default:
+		panic(fmt.Errorf("unknown L1DAMode %v", mode))
+	}
+}
+
+func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	f := "0x0"
 	if l.PriceInFRI != nil {
 		f = l.PriceInFRI.String()
@@ -180,7 +204,7 @@ func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1DataGasPrice {
 	if l.PriceInWei != nil {
 		w = l.PriceInWei.String()
 	}
-	return &pbstarknet.L1DataGasPrice{
+	return &pbstarknet.L1GasPrice{
 		PriceInFri: f,
 		PriceInWei: w,
 	}
@@ -204,7 +228,7 @@ func convertTransactionWithReceipt(tx snRPC.TransactionWithReceipt) (*pbstarknet
 	t := &pbstarknet.TransactionWithReceipt{}
 	convertAndSetTransaction(t, tx.Transaction.Transaction)
 
-	convertAndSetReceipt(t, tx.Receipt.TransactionReceipt)
+	t.Receipt = convertAndSetReceipt(tx.Receipt.TransactionReceipt)
 
 	return t, nil
 }
@@ -239,117 +263,36 @@ func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in snRPC.T
 	return
 }
 
-func convertAndSetReceipt(out *pbstarknet.TransactionWithReceipt, in snRPC.TransactionReceipt) {
+func convertAndSetReceipt(in snRPC.TransactionReceipt) *pbstarknet.TransactionReceipt {
+	common := in.(snRPC.CommonTransactionReceipt)
+	out := &pbstarknet.TransactionReceipt{
+		Type:            string(common.Type),
+		TransactionHash: common.TransactionHash.String(),
+		ActualFee: &pbstarknet.ActualFee{
+			Amount: common.ActualFee.Amount.String(),
+			Unit:   string(common.ActualFee.Unit),
+		},
+		ExecutionStatus:    common.ExecutionStatus.String(),
+		FinalityStatus:     common.FinalityStatus.String(),
+		MessagesSent:       convertMessageSent(common.MessagesSent),
+		RevertReason:       common.RevertReason,
+		Events:             convertEvents(common.Events),
+		ExecutionResources: convertExecutionResources(common.ExecutionResources),
+	}
+
 	switch r := in.(type) {
-	case snRPC.InvokeTransactionReceipt:
-		out.Receipt = convertInvokeTransactionReceipt(&r)
+	case snRPC.InvokeTransactionReceipt, snRPC.DeclareTransactionReceipt:
+		// nothing to do
 	case snRPC.L1HandlerTransactionReceipt:
-		out.Receipt = convertL1HandlerTransactionReceipt(&r)
-	case snRPC.DeclareTransactionReceipt:
-		out.Receipt = convertDeclareTransactionReceipt(&r)
+		out.MessageHash = string(r.MessageHash)
 	case snRPC.DeployTransactionReceipt:
-		out.Receipt = convertDeployTransactionReceipt(&r)
+		out.ContractAddress = r.ContractAddress.String()
 	case snRPC.DeployAccountTransactionReceipt:
-		out.Receipt = convertDeployAccountTransactionReceipt(&r)
+		out.ContractAddress = r.ContractAddress.String()
 	default:
 		panic(fmt.Errorf("unknown receipt type %T", in))
 	}
-	return
-}
-
-func convertInvokeTransactionReceipt(r *snRPC.InvokeTransactionReceipt) *pbstarknet.TransactionWithReceipt_InvokeTransactionReceipt {
-	return &pbstarknet.TransactionWithReceipt_InvokeTransactionReceipt{
-		InvokeTransactionReceipt: &pbstarknet.InvokeTransactionReceipt{
-			Type:            string(r.Type),
-			TransactionHash: r.TransactionHash.String(),
-			ActualFee: &pbstarknet.ActualFee{
-				Amount: r.ActualFee.Amount.String(),
-				Unit:   string(r.ActualFee.Unit),
-			},
-			ExecutionStatus:    string(r.ExecutionStatus),
-			FinalityStatus:     string(r.FinalityStatus),
-			MessagesSent:       convertMessageSent(r.MessagesSent),
-			RevertReason:       r.RevertReason,
-			Events:             convertEvents(r.Events),
-			ExecutionResources: convertExecutionResources(r.ExecutionResources),
-		},
-	}
-
-}
-func convertL1HandlerTransactionReceipt(r *snRPC.L1HandlerTransactionReceipt) *pbstarknet.TransactionWithReceipt_L1HandlerTransactionReceipt {
-	return &pbstarknet.TransactionWithReceipt_L1HandlerTransactionReceipt{
-		L1HandlerTransactionReceipt: &pbstarknet.L1HandlerTransactionReceipt{
-			Type:            string(r.Type),
-			MessageHash:     r.MessageHash,
-			TransactionHash: r.TransactionHash.String(),
-			ActualFee: &pbstarknet.ActualFee{
-				Amount: r.ActualFee.Amount.String(),
-				Unit:   string(r.ActualFee.Unit),
-			},
-			ExecutionStatus:    r.ExecutionStatus.String(),
-			FinalityStatus:     r.FinalityStatus.String(),
-			MessagesSent:       convertMessageSent(r.MessagesSent),
-			RevertReason:       r.RevertReason,
-			Events:             convertEvents(r.Events),
-			ExecutionResources: convertExecutionResources(r.ExecutionResources),
-		},
-	}
-}
-
-func convertDeclareTransactionReceipt(r *snRPC.DeclareTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeclareTransactionReceipt {
-	return &pbstarknet.TransactionWithReceipt_DeclareTransactionReceipt{
-		DeclareTransactionReceipt: &pbstarknet.DeclareTransactionReceipt{
-			Type:            string(r.Type),
-			TransactionHash: r.TransactionHash.String(),
-			ActualFee: &pbstarknet.ActualFee{
-				Amount: r.ActualFee.Amount.String(),
-				Unit:   string(r.ActualFee.Unit),
-			},
-			ExecutionStatus:    string(r.ExecutionStatus),
-			FinalityStatus:     string(r.FinalityStatus),
-			MessagesSent:       convertMessageSent(r.MessagesSent),
-			RevertReason:       r.RevertReason,
-			Events:             convertEvents(r.Events),
-			ExecutionResources: convertExecutionResources(r.ExecutionResources),
-		},
-	}
-}
-
-func convertDeployTransactionReceipt(r *snRPC.DeployTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeployTransactionReceipt {
-	return &pbstarknet.TransactionWithReceipt_DeployTransactionReceipt{
-		DeployTransactionReceipt: &pbstarknet.DeployTransactionReceipt{
-			Type:            string(r.Type),
-			ContractAddress: r.ContractAddress.String(),
-			TransactionHash: r.TransactionHash.String(),
-			ActualFee: &pbstarknet.ActualFee{
-				Amount: r.ActualFee.Amount.String(),
-				Unit:   string(r.ActualFee.Unit),
-			},
-			ExecutionStatus:    string(r.ExecutionStatus),
-			FinalityStatus:     string(r.FinalityStatus),
-			MessagesSent:       convertMessageSent(r.MessagesSent),
-			RevertReason:       r.RevertReason,
-			Events:             convertEvents(r.Events),
-			ExecutionResources: convertExecutionResources(r.ExecutionResources),
-		},
-	}
-}
-
-func convertDeployAccountTransactionReceipt(r *snRPC.DeployAccountTransactionReceipt) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionReceipt {
-	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionReceipt{
-		DeployAccountTransactionReceipt: &pbstarknet.DeployAccountTransactionReceipt{
-			Type:               string(r.Type),
-			ContractAddress:    r.ContractAddress.String(),
-			TransactionHash:    r.TransactionHash.String(),
-			ActualFee:          nil,
-			ExecutionStatus:    string(r.ExecutionStatus),
-			FinalityStatus:     string(r.FinalityStatus),
-			MessagesSent:       convertMessageSent(r.MessagesSent),
-			RevertReason:       r.RevertReason,
-			Events:             convertEvents(r.Events),
-			ExecutionResources: convertExecutionResources(r.ExecutionResources),
-		},
-	}
+	return out
 }
 
 func convertExecutionResources(r snRPC.ExecutionResources) *pbstarknet.ExecutionResources {
@@ -404,9 +347,9 @@ func convertMessageSent(msg []snRPC.MsgToL1) []*pbstarknet.MessagesSent {
 
 }
 
-func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransaction_V0 {
-	return &pbstarknet.TransactionWithReceipt_InvokeTransaction_V0{
-		InvokeTransaction_V0: &pbstarknet.InvokeTransactionV0{
+func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransactionV0 {
+	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV0{
+		InvokeTransactionV0: &pbstarknet.InvokeTransactionV0{
 			Type:               string(tx.GetType()),
 			MaxFee:             tx.MaxFee.String(),
 			Version:            string(tx.Version),
@@ -418,9 +361,9 @@ func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWit
 	}
 }
 
-func convertInvokeTransactionV1(tx snRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransaction_V1 {
-	return &pbstarknet.TransactionWithReceipt_InvokeTransaction_V1{
-		InvokeTransaction_V1: &pbstarknet.InvokeTransactionV1{
+func convertInvokeTransactionV1(tx snRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransactionV1 {
+	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV1{
+		InvokeTransactionV1: &pbstarknet.InvokeTransactionV1{
 			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			Calldata:      convertFeltArray(tx.Calldata),
@@ -432,9 +375,9 @@ func convertInvokeTransactionV1(tx snRPC.InvokeTxnV1) *pbstarknet.TransactionWit
 	}
 }
 
-func convertInvokeTransactionV3(tx snRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransaction_V3 {
-	return &pbstarknet.TransactionWithReceipt_InvokeTransaction_V3{
-		InvokeTransaction_V3: &pbstarknet.InvokeTransactionV3{
+func convertInvokeTransactionV3(tx snRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransactionV3 {
+	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV3{
+		InvokeTransactionV3: &pbstarknet.InvokeTransactionV3{
 			Type:                      string(tx.GetType()),
 			SenderAddress:             tx.SenderAddress.String(),
 			Calldata:                  convertFeltArray(tx.Calldata),
@@ -464,9 +407,9 @@ func convertL1HandlerTransaction(tx snRPC.L1HandlerTxn) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV0(tx snRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransaction_V0 {
-	return &pbstarknet.TransactionWithReceipt_DeclareTransaction_V0{
-		DeclareTransaction_V0: &pbstarknet.DeclareTransactionV0{
+func convertDeclareTransactionV0(tx snRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransactionV0 {
+	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV0{
+		DeclareTransactionV0: &pbstarknet.DeclareTransactionV0{
 			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
@@ -477,9 +420,9 @@ func convertDeclareTransactionV0(tx snRPC.DeclareTxnV0) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV1(tx snRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransaction_V1 {
-	return &pbstarknet.TransactionWithReceipt_DeclareTransaction_V1{
-		DeclareTransaction_V1: &pbstarknet.DeclareTransactionV1{
+func convertDeclareTransactionV1(tx snRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransactionV1 {
+	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV1{
+		DeclareTransactionV1: &pbstarknet.DeclareTransactionV1{
 			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
@@ -491,9 +434,9 @@ func convertDeclareTransactionV1(tx snRPC.DeclareTxnV1) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV2(tx snRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransaction_V2 {
-	return &pbstarknet.TransactionWithReceipt_DeclareTransaction_V2{
-		DeclareTransaction_V2: &pbstarknet.DeclareTransactionV2{
+func convertDeclareTransactionV2(tx snRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
+	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV2{
+		DeclareTransactionV2: &pbstarknet.DeclareTransactionV2{
 			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
@@ -504,9 +447,9 @@ func convertDeclareTransactionV2(tx snRPC.DeclareTxnV2) *pbstarknet.TransactionW
 		},
 	}
 }
-func convertDeclareTransactionV3(tx snRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransaction_V3 {
-	return &pbstarknet.TransactionWithReceipt_DeclareTransaction_V3{
-		DeclareTransaction_V3: &pbstarknet.DeclareTransactionV3{
+func convertDeclareTransactionV3(tx snRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransactionV3 {
+	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV3{
+		DeclareTransactionV3: &pbstarknet.DeclareTransactionV3{
 			Type:                      string(tx.GetType()),
 			SenderAddress:             tx.SenderAddress.String(),
 			CompiledClassHash:         tx.CompiledClassHash.String(),
@@ -524,9 +467,9 @@ func convertDeclareTransactionV3(tx snRPC.DeclareTxnV3) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeployTransactionV0(tx snRPC.DeployTxn) *pbstarknet.TransactionWithReceipt_DeployTransaction_V0 {
-	return &pbstarknet.TransactionWithReceipt_DeployTransaction_V0{
-		DeployTransaction_V0: &pbstarknet.DeployTransactionV0{
+func convertDeployTransactionV0(tx snRPC.DeployTxn) *pbstarknet.TransactionWithReceipt_DeployTransactionV0 {
+	return &pbstarknet.TransactionWithReceipt_DeployTransactionV0{
+		DeployTransactionV0: &pbstarknet.DeployTransactionV0{
 			Version:             string(tx.Version),
 			Type:                string(tx.GetType()),
 			ContractAddressSalt: tx.ContractAddressSalt.String(),
@@ -537,9 +480,9 @@ func convertDeployTransactionV0(tx snRPC.DeployTxn) *pbstarknet.TransactionWithR
 
 }
 
-func convertDeployAccountTransactionV0(tx snRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransaction_V0 {
-	return &pbstarknet.TransactionWithReceipt_DeployAccountTransaction_V0{
-		DeployAccountTransaction_V0: &pbstarknet.DeployAccountTransactionV0{
+func convertDeployAccountTransactionV0(tx snRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1 {
+	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1{
+		DeployAccountTransactionV1: &pbstarknet.DeployAccountTransactionV1{
 			Type:                string(tx.GetType()),
 			MaxFee:              tx.MaxFee.String(),
 			Version:             string(tx.Version),
@@ -553,9 +496,9 @@ func convertDeployAccountTransactionV0(tx snRPC.DeployAccountTxn) *pbstarknet.Tr
 
 }
 
-func convertDeployAccountTransactionV3(tx snRPC.DeployAccountTxnV3) *pbstarknet.TransactionWithReceipt_DeployAccountTransaction_V3 {
-	return &pbstarknet.TransactionWithReceipt_DeployAccountTransaction_V3{
-		DeployAccountTransaction_V3: &pbstarknet.DeployAccountTransactionV3{
+func convertDeployAccountTransactionV3(tx snRPC.DeployAccountTxnV3) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3 {
+	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3{
+		DeployAccountTransactionV3: &pbstarknet.DeployAccountTransactionV3{
 			Type:                      string(tx.GetType()),
 			Version:                   string(tx.Version),
 			Signature:                 convertFeltArray(tx.Signature),
