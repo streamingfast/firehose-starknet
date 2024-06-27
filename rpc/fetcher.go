@@ -9,59 +9,38 @@ import (
 	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
 
 	"github.com/NethermindEth/juno/core/felt"
-	snRPC "github.com/NethermindEth/starknet.go/rpc"
+	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/hashicorp/go-multierror"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/eth-go"
-	goRPC "github.com/streamingfast/eth-go/rpc"
+	ethRPC "github.com/streamingfast/eth-go/rpc"
+	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type RPCClient[C any] struct {
-	clients []C
-}
-
-func NewRPCClient[C any](clients []C) *RPCClient[C] {
-	return &RPCClient[C]{clients: clients}
-}
-
-func (r *RPCClient[C]) WithClient(ctx context.Context, f func(client C) error) error {
-	var errs error
-	for _, client := range r.clients {
-		err := f(client)
-		if err != nil {
-			errs = multierror.Append(errs, err)
-			continue
-		}
-		return errs
-	}
-	return nil
-}
-
 type Fetcher struct {
-	rpcClients               []*snRPC.Provider
-	starkClients             *RPCClient[*goRPC.Client]
+	starknetClients          *firecoreRPC.Clients[*starknetRPC.Provider]
+	ethClients               *firecoreRPC.Clients[*ethRPC.Client]
 	fetchInterval            time.Duration
 	latestBlockRetryInterval time.Duration
 	logger                   *zap.Logger
 	latestBlockNum           uint64
 
-	ethCallLIBParams goRPC.CallParams
+	ethCallLIBParams ethRPC.CallParams
 }
 
 func NewFetcher(
-	rpcClients []*snRPC.Provider,
-	starkClients *RPCClient[*goRPC.Client],
+	starknetClients *firecoreRPC.Clients[*starknetRPC.Provider],
+	ethClient *firecoreRPC.Clients[*ethRPC.Client],
 	fetchLIBContractAddress string,
 	fetchInterval time.Duration,
 	latestBlockRetryInterval time.Duration,
 	logger *zap.Logger) *Fetcher {
 	return &Fetcher{
-		rpcClients:               rpcClients,
-		starkClients:             starkClients,
+		starknetClients:          starknetClients,
+		ethClients:               ethClient,
 		fetchInterval:            fetchInterval,
 		latestBlockRetryInterval: latestBlockRetryInterval,
 		logger:                   logger,
@@ -110,9 +89,8 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 		lib = requestBlockNum - 1
 	}
 
-	//todo: fix receipt
 	//todo: track state update
-	// u, err := f.rpcClients[0].StateUpdate(ctx, snRPC.BlockID(requestBlockNum))
+	// u, err := f.rpcClients[0].StateUpdate(ctx, starknetRPC.BlockID(requestBlockNum))
 	// if err != nil {
 	//	return nil, false, fmt.Errorf("fetching state update for block %d: %w", requestBlockNum, err)
 	// }
@@ -131,81 +109,50 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 }
 
 func (f *Fetcher) fetchBlockNumber(ctx context.Context, blockHash *felt.Felt) (uint64, error) {
-	var errs error
-	for _, rpcClient := range f.rpcClients {
-		i, err := rpcClient.BlockWithTxHashes(ctx, snRPC.WithBlockHash(blockHash))
+	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (uint64, error) {
+		bn, err := client.BlockWithTxHashes(ctx, starknetRPC.WithBlockHash(blockHash))
 		if err != nil {
-			f.logger.Warn("failed to fetch latest block num, trying next client", zap.Error(err))
-			errs = multierror.Append(errs, err)
-			continue
+			return 0, fmt.Errorf("unable to fetch block number: %w", err)
 		}
-		return i.(*snRPC.BlockTxHashes).BlockNumber, nil
-	}
-
-	return 0, errs
+		return bn.(*starknetRPC.BlockTxHashes).BlockNumber, nil
+	})
 }
 
 func (f *Fetcher) fetchLatestBlockNum(ctx context.Context) (uint64, error) {
-	var errs error
-	for _, rpcClient := range f.rpcClients {
-		blockNum, err := rpcClient.BlockNumber(ctx)
+	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (uint64, error) {
+		blockNum, err := client.BlockNumber(ctx)
 		if err != nil {
-			f.logger.Warn("failed to fetch latest block num, trying next client", zap.Error(err))
-			errs = multierror.Append(errs, err)
-			continue
+			return 0, fmt.Errorf("unable to fetch latest block num: %w", err)
 		}
 		return blockNum, nil
-	}
-
-	return 0, errs
+	})
 }
 
 func (f *Fetcher) fetchLIB(ctx context.Context) (uint64, error) {
-	var libNum *uint64
-	err := f.starkClients.WithClient(ctx, func(client *goRPC.Client) error {
+	return firecoreRPC.WithClients(f.ethClients, func(client *ethRPC.Client) (uint64, error) {
 		blockNum, err := client.Call(ctx, f.ethCallLIBParams)
 		if err != nil {
-			f.logger.Warn("failed to fetch latest block num, trying next client", zap.Error(err))
-			return err
+			return 0, fmt.Errorf("unable to fetch LIB: %w", err)
 		}
 
 		blockNum = cleanBlockNum(blockNum)
 		b, err := hexutil.DecodeUint64(blockNum)
 		if err != nil {
-			return fmt.Errorf("unable to parse block number %s: %w", blockNum, err)
+			return 0, fmt.Errorf("unable to parse block number %s: %w", blockNum, err)
 		}
-		fmt.Println("LIB", b)
-		libNum = &b
-		return nil
+
+		return b, nil
 	})
-
-	if err != nil {
-		return 0, err
-	}
-
-	if libNum == nil {
-		return 0, fmt.Errorf("unable to fetch LIB")
-	}
-
-	return *libNum, nil
 }
 
-func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*snRPC.BlockWithReceipts, error) {
-	var errs error
-	for _, rpcClient := range f.rpcClients {
-		i, err := rpcClient.BlockWithReceipts(ctx, snRPC.WithBlockNumber(requestBlockNum))
+func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
+	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.BlockWithReceipts, error) {
+		b, err := client.BlockWithReceipts(ctx, starknetRPC.WithBlockNumber(requestBlockNum))
 		if err != nil {
-			f.logger.Warn("failed to fetch block from rpc", zap.Uint64("block_num", requestBlockNum), zap.Error(err))
-			errs = multierror.Append(errs, err)
-			continue
+			return nil, fmt.Errorf("unable to fetch block: %w", err)
 		}
-
-		block := i.(*snRPC.BlockWithReceipts)
-
-		return block, nil
-	}
-
-	return nil, errs
+		return b.(*starknetRPC.BlockWithReceipts), nil
+	})
 }
 
 func cleanBlockNum(blockNum string) string {
@@ -215,14 +162,14 @@ func cleanBlockNum(blockNum string) string {
 	return blockNum
 }
 
-func newEthCallLIBParams(contractAddress string) goRPC.CallParams {
-	return goRPC.CallParams{
+func newEthCallLIBParams(contractAddress string) ethRPC.CallParams {
+	return ethRPC.CallParams{
 		Data: eth.MustNewMethodDef("stateBlockNumber() (int256)").NewCall().MustEncode(),
 		To:   eth.MustNewAddress(contractAddress),
 	}
 }
 
-func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
+func convertBlock(b *starknetRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 	block := &pbstarknet.Block{
 		BlockHash:        b.BlockHash.String(),
 		BlockNumber:      b.BlockNumber,
@@ -272,18 +219,18 @@ func convertBlock(b *snRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 	return bstreamBlock, nil
 }
 
-func convertL1DAMode(mode snRPC.L1DAMode) pbstarknet.L1_DA_MODE {
+func convertL1DAMode(mode starknetRPC.L1DAMode) pbstarknet.L1_DA_MODE {
 	switch mode {
-	case snRPC.L1DAModeBlob:
+	case starknetRPC.L1DAModeBlob:
 		return pbstarknet.L1_DA_MODE_BLOB
-	case snRPC.L1DAModeCalldata:
+	case starknetRPC.L1DAModeCalldata:
 		return pbstarknet.L1_DA_MODE_CALLDATA
 	default:
 		panic(fmt.Errorf("unknown L1DAMode %v", mode))
 	}
 }
 
-func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
+func convertL1DataGasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	f := "0x0"
 	if l.PriceInFRI != nil {
 		f = l.PriceInFRI.String()
@@ -297,7 +244,7 @@ func convertL1DataGasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 		PriceInWei: w,
 	}
 }
-func convertL1GasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
+func convertL1GasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	f := "0x0"
 	if l.PriceInFRI != nil {
 		f = l.PriceInFRI.String()
@@ -312,7 +259,7 @@ func convertL1GasPrice(l snRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	}
 }
 
-func convertTransactionWithReceipt(tx snRPC.TransactionWithReceipt) (*pbstarknet.TransactionWithReceipt, error) {
+func convertTransactionWithReceipt(tx starknetRPC.TransactionWithReceipt) (*pbstarknet.TransactionWithReceipt, error) {
 	t := &pbstarknet.TransactionWithReceipt{}
 	convertAndSetTransaction(t, tx.Transaction.Transaction)
 
@@ -321,51 +268,51 @@ func convertTransactionWithReceipt(tx snRPC.TransactionWithReceipt) (*pbstarknet
 	return t, nil
 }
 
-func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in snRPC.Transaction) {
+func convertAndSetTransaction(out *pbstarknet.TransactionWithReceipt, in starknetRPC.Transaction) {
 	switch i := in.(type) {
-	case snRPC.InvokeTxnV0:
+	case starknetRPC.InvokeTxnV0:
 		out.Transaction = convertInvokeTransactionV0(i)
-	case snRPC.InvokeTxnV1:
+	case starknetRPC.InvokeTxnV1:
 		out.Transaction = convertInvokeTransactionV1(i)
-	case snRPC.InvokeTxnV3:
+	case starknetRPC.InvokeTxnV3:
 		out.Transaction = convertInvokeTransactionV3(i)
-	case snRPC.L1HandlerTxn:
+	case starknetRPC.L1HandlerTxn:
 		out.Transaction = convertL1HandlerTransaction(i)
-	case snRPC.DeclareTxnV0:
+	case starknetRPC.DeclareTxnV0:
 		out.Transaction = convertDeclareTransactionV0(i)
-	case snRPC.DeclareTxnV1:
+	case starknetRPC.DeclareTxnV1:
 		out.Transaction = convertDeclareTransactionV1(i)
-	case snRPC.DeclareTxnV2:
+	case starknetRPC.DeclareTxnV2:
 		out.Transaction = convertDeclareTransactionV2(i)
-	case snRPC.DeclareTxnV3:
+	case starknetRPC.DeclareTxnV3:
 		out.Transaction = convertDeclareTransactionV3(i)
-	case snRPC.DeployTxn:
+	case starknetRPC.DeployTxn:
 		out.Transaction = convertDeployTransactionV0(i)
-	case snRPC.DeployAccountTxn:
+	case starknetRPC.DeployAccountTxn:
 		out.Transaction = convertDeployAccountTransactionV0(i)
-	case snRPC.DeployAccountTxnV3:
+	case starknetRPC.DeployAccountTxnV3:
 		out.Transaction = convertDeployAccountTransactionV3(i)
 	default:
 		panic(fmt.Errorf("unknown transaction type %T", in))
 	}
 }
 
-func convertAndSetReceipt(in snRPC.TransactionReceipt) *pbstarknet.TransactionReceipt {
+func convertAndSetReceipt(in starknetRPC.TransactionReceipt) *pbstarknet.TransactionReceipt {
 	out := &pbstarknet.TransactionReceipt{}
 	switch r := in.(type) {
-	case snRPC.InvokeTransactionReceipt:
+	case starknetRPC.InvokeTransactionReceipt:
 		// nothing to do
-		out = createCommonTransactionReceipt(snRPC.CommonTransactionReceipt(r))
-	case snRPC.DeclareTransactionReceipt:
+		out = createCommonTransactionReceipt(starknetRPC.CommonTransactionReceipt(r))
+	case starknetRPC.DeclareTransactionReceipt:
 		// nothing to do
-		out = createCommonTransactionReceipt(snRPC.CommonTransactionReceipt(r))
-	case snRPC.L1HandlerTransactionReceipt:
+		out = createCommonTransactionReceipt(starknetRPC.CommonTransactionReceipt(r))
+	case starknetRPC.L1HandlerTransactionReceipt:
 		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
 		out.MessageHash = string(r.MessageHash)
-	case snRPC.DeployTransactionReceipt:
+	case starknetRPC.DeployTransactionReceipt:
 		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
 		out.ContractAddress = r.ContractAddress.String()
-	case snRPC.DeployAccountTransactionReceipt:
+	case starknetRPC.DeployAccountTransactionReceipt:
 		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
 		out.ContractAddress = r.ContractAddress.String()
 	default:
@@ -374,7 +321,7 @@ func convertAndSetReceipt(in snRPC.TransactionReceipt) *pbstarknet.TransactionRe
 	return out
 }
 
-func createCommonTransactionReceipt(common snRPC.CommonTransactionReceipt) *pbstarknet.TransactionReceipt {
+func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt) *pbstarknet.TransactionReceipt {
 	return &pbstarknet.TransactionReceipt{
 		Type:            string(common.Type),
 		TransactionHash: common.TransactionHash.String(),
@@ -391,7 +338,7 @@ func createCommonTransactionReceipt(common snRPC.CommonTransactionReceipt) *pbst
 	}
 }
 
-func convertExecutionResources(r snRPC.ExecutionResources) *pbstarknet.ExecutionResources {
+func convertExecutionResources(r starknetRPC.ExecutionResources) *pbstarknet.ExecutionResources {
 	return &pbstarknet.ExecutionResources{
 		DataAvailability:              convertDataAvailability(r.DataAvailability),
 		Steps:                         uint64(r.Steps),
@@ -407,14 +354,14 @@ func convertExecutionResources(r snRPC.ExecutionResources) *pbstarknet.Execution
 	}
 }
 
-func convertDataAvailability(a snRPC.DataAvailability) *pbstarknet.DataAvailability {
+func convertDataAvailability(a starknetRPC.DataAvailability) *pbstarknet.DataAvailability {
 	return &pbstarknet.DataAvailability{
 		L1DataGas: uint64(a.L1DataGas),
 		L1Gas:     uint64(a.L1Gas),
 	}
 }
 
-func convertEvents(events []snRPC.Event) []*pbstarknet.Event {
+func convertEvents(events []starknetRPC.Event) []*pbstarknet.Event {
 	out := make([]*pbstarknet.Event, len(events))
 
 	for i, e := range events {
@@ -428,7 +375,7 @@ func convertEvents(events []snRPC.Event) []*pbstarknet.Event {
 	return out
 }
 
-func convertMessageSent(msg []snRPC.MsgToL1) []*pbstarknet.MessagesSent {
+func convertMessageSent(msg []starknetRPC.MsgToL1) []*pbstarknet.MessagesSent {
 	out := make([]*pbstarknet.MessagesSent, len(msg))
 
 	for i, m := range msg {
@@ -443,7 +390,7 @@ func convertMessageSent(msg []snRPC.MsgToL1) []*pbstarknet.MessagesSent {
 
 }
 
-func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransactionV0 {
+func convertInvokeTransactionV0(tx starknetRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV0{
 		InvokeTransactionV0: &pbstarknet.InvokeTransactionV0{
 			Type:               string(tx.GetType()),
@@ -457,7 +404,7 @@ func convertInvokeTransactionV0(tx snRPC.InvokeTxnV0) *pbstarknet.TransactionWit
 	}
 }
 
-func convertInvokeTransactionV1(tx snRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransactionV1 {
+func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV1{
 		InvokeTransactionV1: &pbstarknet.InvokeTransactionV1{
 			Type:          string(tx.GetType()),
@@ -471,7 +418,7 @@ func convertInvokeTransactionV1(tx snRPC.InvokeTxnV1) *pbstarknet.TransactionWit
 	}
 }
 
-func convertInvokeTransactionV3(tx snRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransactionV3 {
+func convertInvokeTransactionV3(tx starknetRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV3{
 		InvokeTransactionV3: &pbstarknet.InvokeTransactionV3{
 			Type:                      string(tx.GetType()),
@@ -490,7 +437,7 @@ func convertInvokeTransactionV3(tx snRPC.InvokeTxnV3) *pbstarknet.TransactionWit
 	}
 }
 
-func convertL1HandlerTransaction(tx snRPC.L1HandlerTxn) *pbstarknet.TransactionWithReceipt_L1HandlerTransaction {
+func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.TransactionWithReceipt_L1HandlerTransaction {
 	return &pbstarknet.TransactionWithReceipt_L1HandlerTransaction{
 		L1HandlerTransaction: &pbstarknet.L1HandlerTransaction{
 			Version:            string(tx.Version),
@@ -503,7 +450,7 @@ func convertL1HandlerTransaction(tx snRPC.L1HandlerTxn) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV0(tx snRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransactionV0 {
+func convertDeclareTransactionV0(tx starknetRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV0{
 		DeclareTransactionV0: &pbstarknet.DeclareTransactionV0{
 			Type:          string(tx.GetType()),
@@ -516,7 +463,7 @@ func convertDeclareTransactionV0(tx snRPC.DeclareTxnV0) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV1(tx snRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransactionV1 {
+func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV1{
 		DeclareTransactionV1: &pbstarknet.DeclareTransactionV1{
 			Type:          string(tx.GetType()),
@@ -530,7 +477,7 @@ func convertDeclareTransactionV1(tx snRPC.DeclareTxnV1) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeclareTransactionV2(tx snRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
+func convertDeclareTransactionV2(tx starknetRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV2{
 		DeclareTransactionV2: &pbstarknet.DeclareTransactionV2{
 			Type:          string(tx.GetType()),
@@ -543,7 +490,7 @@ func convertDeclareTransactionV2(tx snRPC.DeclareTxnV2) *pbstarknet.TransactionW
 		},
 	}
 }
-func convertDeclareTransactionV3(tx snRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransactionV3 {
+func convertDeclareTransactionV3(tx starknetRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV3{
 		DeclareTransactionV3: &pbstarknet.DeclareTransactionV3{
 			Type:                      string(tx.GetType()),
@@ -563,7 +510,7 @@ func convertDeclareTransactionV3(tx snRPC.DeclareTxnV3) *pbstarknet.TransactionW
 	}
 }
 
-func convertDeployTransactionV0(tx snRPC.DeployTxn) *pbstarknet.TransactionWithReceipt_DeployTransactionV0 {
+func convertDeployTransactionV0(tx starknetRPC.DeployTxn) *pbstarknet.TransactionWithReceipt_DeployTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_DeployTransactionV0{
 		DeployTransactionV0: &pbstarknet.DeployTransactionV0{
 			Version:             string(tx.Version),
@@ -576,7 +523,7 @@ func convertDeployTransactionV0(tx snRPC.DeployTxn) *pbstarknet.TransactionWithR
 
 }
 
-func convertDeployAccountTransactionV0(tx snRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1 {
+func convertDeployAccountTransactionV0(tx starknetRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1{
 		DeployAccountTransactionV1: &pbstarknet.DeployAccountTransactionV1{
 			Type:                string(tx.GetType()),
@@ -592,7 +539,7 @@ func convertDeployAccountTransactionV0(tx snRPC.DeployAccountTxn) *pbstarknet.Tr
 
 }
 
-func convertDeployAccountTransactionV3(tx snRPC.DeployAccountTxnV3) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3 {
+func convertDeployAccountTransactionV3(tx starknetRPC.DeployAccountTxnV3) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3{
 		DeployAccountTransactionV3: &pbstarknet.DeployAccountTransactionV3{
 			Type:                      string(tx.GetType()),
@@ -618,7 +565,7 @@ func convertFeltArray(in []*felt.Felt) []string {
 	return out
 }
 
-func convertResourceBounds(in snRPC.ResourceBoundsMapping) *pbstarknet.ResourceBounds {
+func convertResourceBounds(in starknetRPC.ResourceBoundsMapping) *pbstarknet.ResourceBounds {
 	return &pbstarknet.ResourceBounds{
 		L1Gas: &pbstarknet.Resource{
 			MaxAmount:       string(in.L1Gas.MaxAmount),

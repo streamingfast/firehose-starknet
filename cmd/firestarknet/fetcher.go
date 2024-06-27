@@ -6,12 +6,13 @@ import (
 	"strconv"
 	"time"
 
-	snRPC "github.com/NethermindEth/starknet.go/rpc"
+	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/spf13/cobra"
 	"github.com/streamingfast/cli/sflags"
-	goRPC "github.com/streamingfast/eth-go/rpc"
+	ethRPC "github.com/streamingfast/eth-go/rpc"
 	firecore "github.com/streamingfast/firehose-core"
 	"github.com/streamingfast/firehose-core/blockpoller"
+	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 )
@@ -60,22 +61,21 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 
 		latestBlockRetryInterval := sflags.MustGetDuration(cmd, "latest-block-retry-interval")
 
-		rpcClients := make([]*snRPC.Provider, 0, len(rpcEndpoints))
+		starknetClients := firecoreRPC.NewClients[*starknetRPC.Provider]()
 		for _, rpcEndpoint := range rpcEndpoints {
-			client, err := snRPC.NewProvider(rpcEndpoint)
+			client, err := starknetRPC.NewProvider(rpcEndpoint)
 			if err != nil {
 				return fmt.Errorf("creating rpc client: %w", err)
 			}
-			rpcClients = append(rpcClients, client)
+			starknetClients.Add(client)
 		}
 
-		ethRpcEndpoints := make([]*goRPC.Client, 0, len(ethEndpoints))
+		ethClients := firecoreRPC.NewClients[*ethRPC.Client]()
 		for _, ethEndpoint := range ethEndpoints {
-			client := goRPC.NewClient(ethEndpoint)
-			ethRpcEndpoints = append(ethRpcEndpoints, client)
+			ethClients.Add(ethRPC.NewClient(ethEndpoint))
 		}
-		starkClients := rpc.NewRPCClient(ethRpcEndpoints)
-		rpcFetcher := rpc.NewFetcher(rpcClients, starkClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
+
+		rpcFetcher := rpc.NewFetcher(starknetClients, ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
 
 		poller := blockpoller.New(
 			rpcFetcher,
