@@ -80,24 +80,18 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
-	lib, err := f.fetchLIB(ctx)
+	lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching LIB: %w", err)
-	}
-
-	if lib >= requestBlockNum {
-		lib = requestBlockNum - 1
 	}
 
 	stateUpdate, err := f.FetchStateUpdate(ctx, requestBlockNum)
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate)
+	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, lastL1AcceptedBlock)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
 	}
-
-	bstreamBlock.LibNum = lib
 
 	return bstreamBlock, false, nil
 
@@ -133,7 +127,7 @@ func (f *Fetcher) fetchLatestBlockNum(ctx context.Context) (uint64, error) {
 	})
 }
 
-func (f *Fetcher) fetchLIB(ctx context.Context) (uint64, error) {
+func (f *Fetcher) fetchLastL1AcceptBlock(ctx context.Context) (uint64, error) {
 	return firecoreRPC.WithClients(f.ethClients, func(client *ethRPC.Client) (uint64, error) {
 		blockNum, err := client.Call(ctx, f.ethCallLIBParams)
 		if err != nil {
@@ -174,7 +168,15 @@ func newEthCallLIBParams(contractAddress string) ethRPC.CallParams {
 	}
 }
 
-func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOutput) (*pbbstream.Block, error) {
+func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOutput, lastL1AcceptedBlock uint64) (*pbbstream.Block, error) {
+	lib := lastL1AcceptedBlock
+	if b.BlockNumber >= lib {
+		if b.BlockNumber > 0 {
+			lib = b.BlockNumber - 1
+		} else {
+			lib = 0
+		}
+	}
 	stateUpdate := convertStateUpdate(s)
 	block := &pbstarknet.Block{
 		BlockHash:        b.BlockHash.String(),
@@ -434,7 +436,6 @@ func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt)
 			Unit:   string(common.ActualFee.Unit),
 		},
 		ExecutionStatus:    common.ExecutionStatus.String(),
-		FinalityStatus:     common.FinalityStatus.String(),
 		MessagesSent:       convertMessageSent(common.MessagesSent),
 		RevertReason:       common.RevertReason,
 		Events:             convertEvents(common.Events),

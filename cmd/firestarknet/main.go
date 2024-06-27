@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
-	"github.com/streamingfast/firehose-core/cmd/tools"
 	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
-	"os"
 )
 
 var logger, tracer = logging.PackageLogger("firestarknet", "github.com/streamingfast/firehose-starknet")
@@ -18,9 +18,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	logging.InstantiateLoggers(logging.WithDefaultLevel(zap.InfoLevel))
-
 	rootCmd.AddCommand(NewFetchCmd(logger, tracer))
-	rootCmd.AddCommand(tools.ToolsCmd)
 }
 
 func main() {
