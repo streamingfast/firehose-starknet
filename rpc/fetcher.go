@@ -89,15 +89,10 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 		lib = requestBlockNum - 1
 	}
 
-	//todo: track state update
-	// u, err := f.rpcClients[0].StateUpdate(ctx, starknetRPC.BlockID(requestBlockNum))
-	// if err != nil {
-	//	return nil, false, fmt.Errorf("fetching state update for block %d: %w", requestBlockNum, err)
-	// }
-	// u.StateDiff.StorageDiffs[0].StorageEntries[0].Value.
+	stateUpdate, err := f.FetchStateUpdate(ctx, requestBlockNum)
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	bstreamBlock, err := convertBlock(blockWithReceipts)
+	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
 	}
@@ -106,6 +101,16 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 	return bstreamBlock, false, nil
 
+}
+
+func (f *Fetcher) FetchStateUpdate(ctx context.Context, blockNum uint64) (*starknetRPC.StateUpdateOutput, error) {
+	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.StateUpdateOutput, error) {
+		i, err := client.StateUpdate(ctx, starknetRPC.WithBlockNumber(blockNum))
+		if err != nil {
+			return nil, fmt.Errorf("fetching state update: %w", err)
+		}
+		return i, nil
+	})
 }
 
 func (f *Fetcher) fetchBlockNumber(ctx context.Context, blockHash *felt.Felt) (uint64, error) {
@@ -169,7 +174,8 @@ func newEthCallLIBParams(contractAddress string) ethRPC.CallParams {
 	}
 }
 
-func convertBlock(b *starknetRPC.BlockWithReceipts) (*pbbstream.Block, error) {
+func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOutput) (*pbbstream.Block, error) {
+	stateUpdate := convertStateUpdate(s)
 	block := &pbstarknet.Block{
 		BlockHash:        b.BlockHash.String(),
 		BlockNumber:      b.BlockNumber,
@@ -181,6 +187,7 @@ func convertBlock(b *starknetRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 		Timestamp:        b.Timestamp,
 		L1DataGasPrice:   convertL1DataGasPrice(b.L1DataGasPrice),
 		L1GasPrice:       convertL1GasPrice(b.L1GasPrice),
+		StateUpdate:      stateUpdate,
 	}
 
 	transactions := make([]*pbstarknet.TransactionWithReceipt, 0, len(b.Transactions))
@@ -217,6 +224,103 @@ func convertBlock(b *starknetRPC.BlockWithReceipts) (*pbbstream.Block, error) {
 	}
 
 	return bstreamBlock, nil
+}
+
+func convertStateUpdate(s *starknetRPC.StateUpdateOutput) *pbstarknet.StateUpdate {
+	return &pbstarknet.StateUpdate{
+		OldRoot:   s.OldRoot.String(),
+		NewRoot:   s.NewRoot.String(),
+		StateDiff: convertStateDiff(s.StateDiff),
+	}
+}
+
+func convertStateDiff(diff starknetRPC.StateDiff) *pbstarknet.StateDiff {
+	return &pbstarknet.StateDiff{
+		StorageDiffs:              convertStorageDiff(diff.StorageDiffs),
+		DeprecatedDeclaredClasses: convertFeltArray(diff.DeprecatedDeclaredClasses),
+		DeclaredClasses:           convertDeclaredClasses(diff.DeclaredClasses),
+		DeployedContracts:         convertDeployedContracts(diff.DeployedContracts),
+		ReplacedClasses:           convertReplacedClasses(diff.ReplacedClasses),
+		NonceDiffs:                convertNonceDiffs(diff.Nonces),
+	}
+}
+
+func convertNonceDiffs(nonces []starknetRPC.ContractNonce) []*pbstarknet.NonceDiff {
+	out := make([]*pbstarknet.NonceDiff, len(nonces))
+
+	for i, n := range nonces {
+		out[i] = &pbstarknet.NonceDiff{
+			ContractAddress: n.ContractAddress.String(),
+			Nonce:           n.Nonce.String(),
+		}
+	}
+
+	return out
+}
+
+func convertReplacedClasses(classes []starknetRPC.ReplacedClassesItem) []*pbstarknet.ReplacedClass {
+	out := make([]*pbstarknet.ReplacedClass, len(classes))
+
+	for i, c := range classes {
+		out[i] = &pbstarknet.ReplacedClass{
+			ContractAddress: c.ContractClass.String(),
+			ClassHash:       c.ClassHash.String(),
+		}
+	}
+
+	return out
+}
+
+func convertDeployedContracts(contracts []starknetRPC.DeployedContractItem) []*pbstarknet.DeployedContract {
+	out := make([]*pbstarknet.DeployedContract, len(contracts))
+
+	for i, c := range contracts {
+		out[i] = &pbstarknet.DeployedContract{
+			Address:   c.Address.String(),
+			ClassHash: c.ClassHash.String(),
+		}
+	}
+
+	return out
+}
+
+func convertDeclaredClasses(classes []starknetRPC.DeclaredClassesItem) []*pbstarknet.DeclaredClass {
+	out := make([]*pbstarknet.DeclaredClass, len(classes))
+
+	for i, c := range classes {
+		out[i] = &pbstarknet.DeclaredClass{
+			ClassHash:         c.ClassHash.String(),
+			CompiledClassHash: c.CompiledClassHash.String(),
+		}
+	}
+
+	return out
+}
+
+func convertStorageDiff(diffs []starknetRPC.ContractStorageDiffItem) []*pbstarknet.ContractStorageDiff {
+	out := make([]*pbstarknet.ContractStorageDiff, len(diffs))
+
+	for i, d := range diffs {
+		out[i] = &pbstarknet.ContractStorageDiff{
+			Address:        d.Address.String(),
+			StorageEntries: convertStorageEntries(d.StorageEntries),
+		}
+	}
+
+	return out
+}
+
+func convertStorageEntries(entries []starknetRPC.StorageEntry) []*pbstarknet.StorageEntries {
+	out := make([]*pbstarknet.StorageEntries, len(entries))
+
+	for i, e := range entries {
+		out[i] = &pbstarknet.StorageEntries{
+			Key:   e.Key.String(),
+			Value: e.Value.String(),
+		}
+	}
+
+	return out
 }
 
 func convertL1DAMode(mode starknetRPC.L1DAMode) pbstarknet.L1_DA_MODE {
