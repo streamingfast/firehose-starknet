@@ -4,8 +4,8 @@ go 1.22.0
 
 toolchain go1.22.3
 
-
 replace github.com/jhump/protoreflect => github.com/streamingfast/protoreflect v0.0.0-20231205191344-4b629d20ce8d
+
 //replace github.com/streamingfast/firehose-core => ../firehose-core
 
 require (
@@ -16,7 +16,7 @@ require (
 	github.com/streamingfast/bstream v0.0.2-0.20240619142813-9d23840859bf
 	github.com/streamingfast/cli v0.0.4-0.20240412191021-5f81842cb71d
 	github.com/streamingfast/eth-go v0.0.0-20240312122859-216e183c0b7f
-	github.com/streamingfast/firehose-core v1.5.4-0.20240627115820-5e86b3073da6
+	github.com/streamingfast/firehose-core v1.5.4-0.20240627152952-7accd60755e3
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091
 	go.uber.org/zap v1.27.0
 	google.golang.org/protobuf v1.33.0
