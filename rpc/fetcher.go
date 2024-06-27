@@ -498,7 +498,6 @@ func convertMessageSent(msg []starknetRPC.MsgToL1) []*pbstarknet.MessagesSent {
 func convertInvokeTransactionV0(tx starknetRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV0{
 		InvokeTransactionV0: &pbstarknet.InvokeTransactionV0{
-			Type:               string(tx.GetType()),
 			MaxFee:             tx.MaxFee.String(),
 			Version:            string(tx.Version),
 			Signature:          convertFeltArray(tx.Signature),
@@ -512,7 +511,6 @@ func convertInvokeTransactionV0(tx starknetRPC.InvokeTxnV0) *pbstarknet.Transact
 func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV1{
 		InvokeTransactionV1: &pbstarknet.InvokeTransactionV1{
-			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			Calldata:      convertFeltArray(tx.Calldata),
 			MaxFee:        tx.MaxFee.String(),
@@ -526,7 +524,6 @@ func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.Transact
 func convertInvokeTransactionV3(tx starknetRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV3{
 		InvokeTransactionV3: &pbstarknet.InvokeTransactionV3{
-			Type:                      string(tx.GetType()),
 			SenderAddress:             tx.SenderAddress.String(),
 			Calldata:                  convertFeltArray(tx.Calldata),
 			Version:                   string(tx.Version),
@@ -546,7 +543,6 @@ func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.Transa
 	return &pbstarknet.TransactionWithReceipt_L1HandlerTransaction{
 		L1HandlerTransaction: &pbstarknet.L1HandlerTransaction{
 			Version:            string(tx.Version),
-			Type:               string(tx.GetType()),
 			Nonce:              tx.Nonce,
 			ContractAddress:    tx.ContractAddress.String(),
 			EntryPointSelector: tx.EntryPointSelector.String(),
@@ -558,7 +554,6 @@ func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.Transa
 func convertDeclareTransactionV0(tx starknetRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV0{
 		DeclareTransactionV0: &pbstarknet.DeclareTransactionV0{
-			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
 			Version:       string(tx.Version),
@@ -571,7 +566,6 @@ func convertDeclareTransactionV0(tx starknetRPC.DeclareTxnV0) *pbstarknet.Transa
 func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV1{
 		DeclareTransactionV1: &pbstarknet.DeclareTransactionV1{
-			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
 			Version:       string(tx.Version),
@@ -585,7 +579,6 @@ func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.Transa
 func convertDeclareTransactionV2(tx starknetRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV2{
 		DeclareTransactionV2: &pbstarknet.DeclareTransactionV2{
-			Type:          string(tx.GetType()),
 			SenderAddress: tx.SenderAddress.String(),
 			MaxFee:        tx.MaxFee.String(),
 			Version:       string(tx.Version),
@@ -598,7 +591,6 @@ func convertDeclareTransactionV2(tx starknetRPC.DeclareTxnV2) *pbstarknet.Transa
 func convertDeclareTransactionV3(tx starknetRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV3{
 		DeclareTransactionV3: &pbstarknet.DeclareTransactionV3{
-			Type:                      string(tx.GetType()),
 			SenderAddress:             tx.SenderAddress.String(),
 			CompiledClassHash:         tx.CompiledClassHash.String(),
 			Version:                   string(tx.Version),
@@ -619,7 +611,6 @@ func convertDeployTransactionV0(tx starknetRPC.DeployTxn) *pbstarknet.Transactio
 	return &pbstarknet.TransactionWithReceipt_DeployTransactionV0{
 		DeployTransactionV0: &pbstarknet.DeployTransactionV0{
 			Version:             string(tx.Version),
-			Type:                string(tx.GetType()),
 			ContractAddressSalt: tx.ContractAddressSalt.String(),
 			ConstructorCalldata: convertFeltArray(tx.ConstructorCalldata),
 			ClassHash:           tx.ClassHash.String(),
@@ -631,7 +622,6 @@ func convertDeployTransactionV0(tx starknetRPC.DeployTxn) *pbstarknet.Transactio
 func convertDeployAccountTransactionV0(tx starknetRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1{
 		DeployAccountTransactionV1: &pbstarknet.DeployAccountTransactionV1{
-			Type:                string(tx.GetType()),
 			MaxFee:              tx.MaxFee.String(),
 			Version:             string(tx.Version),
 			Signature:           convertFeltArray(tx.Signature),
@@ -647,7 +637,6 @@ func convertDeployAccountTransactionV0(tx starknetRPC.DeployAccountTxn) *pbstark
 func convertDeployAccountTransactionV3(tx starknetRPC.DeployAccountTxnV3) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV3{
 		DeployAccountTransactionV3: &pbstarknet.DeployAccountTransactionV3{
-			Type:                      string(tx.GetType()),
 			Version:                   string(tx.Version),
 			Signature:                 convertFeltArray(tx.Signature),
 			Nonce:                     tx.Nonce.String(),
