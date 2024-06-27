@@ -86,6 +86,9 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 
 	stateUpdate, err := f.FetchStateUpdate(ctx, requestBlockNum)
+	if err != nil {
+		return nil, false, fmt.Errorf("fetching state update: %w", err)
+	}
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
 	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, lastL1AcceptedBlock)
