@@ -12,12 +12,16 @@ require (
 	github.com/NethermindEth/juno v0.3.1
 	github.com/NethermindEth/starknet.go v0.7.1-0.20240614122559-0d2f96428b45
 	github.com/ethereum/go-ethereum v1.13.8
+	github.com/go-json-experiment/json v0.0.0-20231013223334-54c864be5b8d
+	github.com/hexops/gotextdiff v1.0.3
+	github.com/itchyny/gojq v0.12.12
 	github.com/spf13/cobra v1.8.0
 	github.com/streamingfast/bstream v0.0.2-0.20240619142813-9d23840859bf
 	github.com/streamingfast/cli v0.0.4-0.20240412191021-5f81842cb71d
 	github.com/streamingfast/eth-go v0.0.0-20240312122859-216e183c0b7f
 	github.com/streamingfast/firehose-core v1.5.4-0.20240627152952-7accd60755e3
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091
+	github.com/tidwall/gjson v1.14.1
 	go.uber.org/zap v1.27.0
 	google.golang.org/protobuf v1.33.0
 )
@@ -71,14 +75,11 @@ require (
 	github.com/envoyproxy/go-control-plane v0.12.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.4 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fsnotify/fsnotify v1.6.0 // indirect
+	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.4.0 // indirect
-	github.com/go-json-experiment/json v0.0.0-20231013223334-54c864be5b8d // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.5 // indirect
-	github.com/go-openapi/jsonpointer v0.19.5 // indirect
-	github.com/go-openapi/swag v0.21.1 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -88,7 +89,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.3 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
@@ -97,10 +98,9 @@ require (
 	github.com/ipfs/boxo v0.8.0 // indirect
 	github.com/ipfs/go-cid v0.4.0 // indirect
 	github.com/ipfs/go-ipfs-api v0.6.0 // indirect
+	github.com/itchyny/timefmt-go v0.1.5 // indirect
 	github.com/jhump/protoreflect v1.14.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/josephburnett/jd v1.7.1 // indirect
-	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/compress v1.16.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
@@ -109,7 +109,6 @@ require (
 	github.com/lithammer/dedent v1.1.0 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/manifoldco/promptui v0.9.0 // indirect
 	github.com/mattn/go-ieproxy v0.0.1 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
@@ -117,7 +116,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/mostynb/go-grpc-compression v1.1.17 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
@@ -160,7 +158,6 @@ require (
 	github.com/streamingfast/dmetrics v0.0.0-20230919161904-206fa8ebd545 // indirect
 	github.com/streamingfast/dstore v0.1.1-0.20240325191553-bcce8892a9bb // indirect
 	github.com/streamingfast/dtracing v0.0.0-20220305214756-b5c0e8699839 // indirect
-	github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0 // indirect
 	github.com/streamingfast/opaque v0.0.0-20210811180740-0c01d37ea308 // indirect
 	github.com/streamingfast/pbgo v0.0.6-0.20240430190514-722fe9d82e5d // indirect
 	github.com/streamingfast/sf-tracing v0.0.0-20240430173521-888827872b90 // indirect
@@ -170,7 +167,6 @@ require (
 	github.com/subosito/gotenv v1.4.2 // indirect
 	github.com/teris-io/shortid v0.0.0-20171029131806-771a37caa5cf // indirect
 	github.com/test-go/testify v1.1.4 // indirect
-	github.com/tidwall/gjson v1.14.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
@@ -194,7 +190,7 @@ require (
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.22.0 // indirect
+	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/oauth2 v0.18.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.20.0 // indirect

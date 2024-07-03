@@ -19,6 +19,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	logging.InstantiateLoggers(logging.WithDefaultLevel(zap.InfoLevel))
 	rootCmd.AddCommand(NewFetchCmd(logger, tracer))
+	rootCmd.AddCommand(NewTestBlockCmd(logger, tracer))
 }
 
 func main() {

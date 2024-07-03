@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -74,7 +75,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 	f.logger.Info("fetching block", zap.Uint64("block_num", requestBlockNum))
 	//at this time we getting the most recent accepted block number (L2)
-	blockWithReceipts, err := f.fetchBlock(ctx, requestBlockNum)
+	blockWithReceipts, err := FetchBlock(ctx, f.starknetClients, requestBlockNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching block %d: %w", requestBlockNum, err)
 	}
@@ -85,7 +86,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 		return nil, false, fmt.Errorf("fetching LIB: %w", err)
 	}
 
-	stateUpdate, err := f.FetchStateUpdate(ctx, requestBlockNum)
+	stateUpdate, err := FetchStateUpdate(ctx, f.starknetClients, requestBlockNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching state update: %w", err)
 	}
@@ -100,14 +101,51 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 }
 
-func (f *Fetcher) FetchStateUpdate(ctx context.Context, blockNum uint64) (*starknetRPC.StateUpdateOutput, error) {
-	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.StateUpdateOutput, error) {
+func FetchStateUpdate(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], blockNum uint64) (*starknetRPC.StateUpdateOutput, error) {
+	updates, err := firecoreRPC.WithClients(starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.StateUpdateOutput, error) {
 		i, err := client.StateUpdate(ctx, starknetRPC.WithBlockNumber(blockNum))
 		if err != nil {
 			return nil, fmt.Errorf("fetching state update: %w", err)
 		}
 		return i, nil
 	})
+
+	if err != nil {
+		return nil, fmt.Errorf("fetching state update: %w", err)
+	}
+
+	//SORT PARTY
+
+	slices.SortFunc(updates.StateDiff.StorageDiffs, func(a, b starknetRPC.ContractStorageDiffItem) int {
+		return strings.Compare(a.Address.String(), b.Address.String())
+	})
+	for _, d := range updates.StateDiff.StorageDiffs {
+		slices.SortFunc(d.StorageEntries, func(a, b starknetRPC.StorageEntry) int {
+			return strings.Compare(a.Key.String(), b.Key.String())
+		})
+	}
+
+	slices.SortFunc(updates.StateDiff.DeprecatedDeclaredClasses, func(a, b *felt.Felt) int {
+		return strings.Compare(a.String(), b.String())
+	})
+
+	slices.SortFunc(updates.StateDiff.DeclaredClasses, func(a, b starknetRPC.DeclaredClassesItem) int {
+		return strings.Compare(a.ClassHash.String(), b.ClassHash.String())
+	})
+
+	slices.SortFunc(updates.StateDiff.DeployedContracts, func(a, b starknetRPC.DeployedContractItem) int {
+		return strings.Compare(a.Address.String(), b.Address.String())
+	})
+
+	slices.SortFunc(updates.StateDiff.ReplacedClasses, func(a, b starknetRPC.ReplacedClassesItem) int {
+		return strings.Compare(a.ContractClass.String(), b.ContractClass.String())
+	})
+
+	slices.SortFunc(updates.StateDiff.Nonces, func(a, b starknetRPC.ContractNonce) int {
+		return strings.Compare(a.ContractAddress.String(), b.ContractAddress.String())
+	})
+
+	return updates, err
 }
 
 func (f *Fetcher) fetchBlockNumber(ctx context.Context, blockHash *felt.Felt) (uint64, error) {
@@ -147,8 +185,8 @@ func (f *Fetcher) fetchLastL1AcceptBlock(ctx context.Context) (uint64, error) {
 	})
 }
 
-func (f *Fetcher) fetchBlock(ctx context.Context, requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
-	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.BlockWithReceipts, error) {
+func FetchBlock(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
+	return firecoreRPC.WithClients(starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.BlockWithReceipts, error) {
 		b, err := client.BlockWithReceipts(ctx, starknetRPC.WithBlockNumber(requestBlockNum))
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch block: %w", err)
@@ -204,7 +242,7 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 		transactions = append(transactions, t)
 	}
 
-	block.Transaction = transactions
+	block.Transactions = transactions
 
 	anyBlock, err := anypb.New(block)
 	if err != nil {
@@ -246,7 +284,7 @@ func convertStateDiff(diff starknetRPC.StateDiff) *pbstarknet.StateDiff {
 		DeclaredClasses:           convertDeclaredClasses(diff.DeclaredClasses),
 		DeployedContracts:         convertDeployedContracts(diff.DeployedContracts),
 		ReplacedClasses:           convertReplacedClasses(diff.ReplacedClasses),
-		NonceDiffs:                convertNonceDiffs(diff.Nonces),
+		Nonces:                    convertNonceDiffs(diff.Nonces),
 	}
 }
 
@@ -339,7 +377,7 @@ func convertL1DAMode(mode starknetRPC.L1DAMode) pbstarknet.L1_DA_MODE {
 	}
 }
 
-func convertL1DataGasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
+func convertL1DataGasPrice(l starknetRPC.ResourcePrice) *pbstarknet.ResourcePrice {
 	f := "0x0"
 	if l.PriceInFRI != nil {
 		f = l.PriceInFRI.String()
@@ -348,12 +386,12 @@ func convertL1DataGasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	if l.PriceInWei != nil {
 		w = l.PriceInWei.String()
 	}
-	return &pbstarknet.L1GasPrice{
+	return &pbstarknet.ResourcePrice{
 		PriceInFri: f,
 		PriceInWei: w,
 	}
 }
-func convertL1GasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
+func convertL1GasPrice(l starknetRPC.ResourcePrice) *pbstarknet.ResourcePrice {
 	f := "0x0"
 	if l.PriceInFRI != nil {
 		f = l.PriceInFRI.String()
@@ -362,7 +400,7 @@ func convertL1GasPrice(l starknetRPC.ResourcePrice) *pbstarknet.L1GasPrice {
 	if l.PriceInWei != nil {
 		w = l.PriceInWei.String()
 	}
-	return &pbstarknet.L1GasPrice{
+	return &pbstarknet.ResourcePrice{
 		PriceInFri: f,
 		PriceInWei: w,
 	}
