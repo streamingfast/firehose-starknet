@@ -7,38 +7,39 @@ option go_package = "github.com/streamingfast/firehose-starknet/pb/sf/starknet/t
 
 message Block {
   string block_hash = 1;
-  uint64 block_number = 2;
-  //specifies whether the data of this block is published via blob data or calldata
-  L1_DA_MODE l1_da_mode = 3;
+  //The hash of this block's parent
+  string parent_hash = 2;
+  uint64 block_number = 3;
   //The new global state root
   string new_root = 4;
-  //The hash of this block's parent
-  string parent_hash = 5;
+  //The time in which the block was created
+  uint64 timestamp = 5;
   //The StarkNet identity of the sequencer submitting this block
   string sequencer_address = 6;
-  //Semver of the current Starknet protocol
-  string starknet_version = 7;
-  //The time in which the block was created
-  uint64 timestamp = 8;
 
-  //The price of l1 data gas in the block
-  L1GasPrice l1_data_gas_price = 20;
   //The price of l1 gas in the block
-  L1GasPrice l1_gas_price = 21;
+  ResourcePrice l1_gas_price = 7;
+  //The price of l1 data gas in the block
+  ResourcePrice l1_data_gas_price = 8;
+  //specifies whether the data of this block is published via blob data or calldata
+  L1_DA_MODE l1_da_mode = 9;
+  //Semver of the current Starknet protocol
+  string starknet_version = 10;
 
   //The transactions in this block
-  repeated TransactionWithReceipt transaction = 30;
+  repeated TransactionWithReceipt transactions = 11;
 
-  StateUpdate state_update = 40;
+  StateUpdate state_update = 12;
 }
 
 //specifies whether the data of this block is published via blob data or calldata
 enum L1_DA_MODE {
-  BLOB = 0;
+  UNKNOWN = 0;
   CALLDATA = 1;
+  BLOB = 2;
 }
 
-message L1GasPrice {
+message ResourcePrice {
   string price_in_fri = 1;
   string price_in_wei = 2;
 }
@@ -65,24 +66,25 @@ message TransactionWithReceipt {
 }
 
 message TransactionReceipt{
-  string type = 1;
   //The hash identifying the transaction
-  string transaction_hash = 2;
-  //The message hash as it appears on the L1 core contract
-  string message_hash = 3;
-  //The address of the deployed contract
-  string contract_address = 4;
+  string transaction_hash = 1;
   //The fee that was charged by the sequencer
-  ActualFee actual_fee = 5;
+  ActualFee actual_fee = 2;
   //Execution status
-  string execution_status = 6;
+  string execution_status = 3;
+  string revert_reason = 4;
+
+  string type = 5;
   //Messages sent
-  repeated MessagesSent  messages_sent = 8;
-  string revert_reason = 9;
+  string message_hash = 6;
+  //The address of the deployed contract
+  repeated MessagesSent messages_sent = 7;
   //The events emitted as part of this transaction
-  repeated Event events = 10;
+  repeated Event events = 8;
   //The resources consumed by the transaction
-  ExecutionResources execution_resources = 11;
+  ExecutionResources execution_resources = 9;
+  //The message hash as it appears on the L1 core contract
+  string contract_address = 10;
 
 }
 
@@ -103,27 +105,28 @@ message Event {
 }
 
 message ExecutionResources {
-  DataAvailability data_availability = 1;
   //The number of Cairo steps used
-  uint64 steps = 2;
+  uint64 steps = 1;
   //The number of unused memory cells (each cell is roughly equivalent to a step)
-  uint64 memory_holes = 3;
+  uint64 memory_holes = 2;
   //The number of RANGE_CHECK builtin instances
-  uint64 range_check_builtin_applications = 4;
+  uint64 range_check_builtin_applications = 3;
   //The number of Pedersen builtin instances
-  uint64 pedersen_builtin_applications = 5;
+  uint64 pedersen_builtin_applications = 4;
   //The number of Poseidon builtin instances
-  uint64 poseidon_builtin_applications = 6;
+  uint64 poseidon_builtin_applications = 5;
   //the number of EC_OP builtin instances
-  uint64 ec_op_builtin_applications = 7;
+  uint64 ec_op_builtin_applications = 6;
   //the number of ECDSA builtin instances
-  uint64 ecdsa_builtin_applications = 8;
+  uint64 ecdsa_builtin_applications = 7;
   //the number of BITWISE builtin instances
-  uint64 bitwise_builtin_applications = 9;
+  uint64 bitwise_builtin_applications = 8;
   //The number of KECCAK builtin instances
-  uint64 keccak_builtin_applications = 10;
+  uint64 keccak_builtin_applications = 9;
   //The number of accesses to the segment arena
-  uint64 segment_arena_builtin = 11;
+  uint64 segment_arena_builtin = 10;
+  DataAvailability data_availability = 11;
+
 }
 
 //invokes a specific function in the desired contract (not necessarily an account)
@@ -141,16 +144,16 @@ message InvokeTransactionV0 {
 
 //initiates a transaction from a given account
 message InvokeTransactionV1 {
-  //sender address
-  string sender_address = 2;
-  //The data expected by the account's `execute` function (in most usecases, this includes the called contract address and a function selector)
-  repeated string calldata = 3;
   //The maximal fee that can be charged for including the transaction
-  string max_fee = 4;
+  string max_fee = 1;
   //Version of the transaction scheme
-  string version = 5;
-  repeated string signature = 6;
-  string nonce = 7;
+  string version = 2;
+  repeated string signature = 3;
+  string nonce = 4;
+  //sender address
+  string sender_address = 5;
+  //The data expected by the account's `execute` function (in most usecases, this includes the called contract address and a function selector)
+  repeated string calldata = 6;
 }
 
 //initiates a transaction from a given account
@@ -217,8 +220,9 @@ message DeclareTransactionV1 {
 
 //Declare Contract Transaction V2
 message DeclareTransactionV2 {
-  string sender_address = 2;
+  string sender_address = 1;
   //The maximal fee that can be charged for including the transaction
+  string compiled_class_hash = 2;
   string max_fee = 3;
   //Version of the transaction scheme
   string version = 4;
@@ -255,40 +259,42 @@ message DeclareTransactionV3 {
 
 //deploys a new account contract
 message DeployTransactionV0 {
-  //Version of the transaction scheme
-  string version = 1;
-  //The salt for the address of the deployed contract
-  string contract_address_salt = 2;
-  //The parameters passed to the constructor
-  repeated string  constructor_calldata = 3;
   //The hash of the deployed contract's class
-  string class_hash = 4;
+  string class_hash = 1;
+  //Version of the transaction scheme
+  string version = 2;
+  //The salt for the address of the deployed contract
+  string contract_address_salt = 3;
+  //The parameters passed to the constructor
+  repeated string  constructor_calldata = 4;
 }
 
 //Deploys an account contract, charges fee from the pre-funded account addresses
 message DeployAccountTransactionV1 {
   //The maximal fee that can be charged for including the transaction
-  string max_fee = 2;
+  string max_fee = 1;
   //Version of the transaction scheme
-  string version = 3;
-  repeated string signature = 4;
-  string nonce = 5;
+  string version = 2;
+  repeated string signature = 3;
+  string nonce = 4;
+  //The hash of the deployed contract's class
+  string class_hash = 5;
   //The salt for the address of the deployed contract
   string contract_address_salt = 6;
   //The parameters passed to the constructor
   repeated string constructor_calldata = 7;
-  //The hash of the deployed contract's class
-  string class_hash = 8;
 }
 
 //Deploys an account contract, charges fee from the pre-funded account addresses
 message DeployAccountTransactionV3 {
   //Version of the transaction scheme
-  string version = 2;
-  repeated string signature = 3;
-  string nonce = 4;
+  string version = 1;
+  repeated string signature = 2;
+  string nonce = 3;
   //The salt for the address of the deployed contract
-  string contract_address_salt = 5;
+  string contract_address_salt = 4;
+  //The parameters passed to the constructor
+  repeated string constructor_calldata = 5;
   //The hash of the deployed contract's class
   string class_hash = 6;
   //resource bounds for the transaction execution
@@ -305,9 +311,9 @@ message DeployAccountTransactionV3 {
 
 message ResourceBounds {
   //The max amount and max price per unit of L1 gas used in this tx
-  Resource L1Gas = 1;
+  Resource l1_gas = 1;
   //The max amount and max price per unit of L2 gas used in this tx
-  Resource L2Gas = 2;
+  Resource l2_gas = 2;
 }
 
 message Resource {
@@ -330,18 +336,18 @@ message ActualFee {
 }
 
 message DataAvailability {
-  //the gas consumed by this transaction's data, 0 if it uses data gas for DA
-  uint64 l1_data_gas = 1;
   //the data gas consumed by this transaction's data, 0 if it uses gas for DA
-  uint64 l1_gas = 2;
+  uint64 l1_gas = 1;
+  //the gas consumed by this transaction's data, 0 if it uses data gas for DA
+  uint64 l1_data_gas = 2;
 }
 
 //State update
 message StateUpdate {
-  //The previous global state root
-  string old_root = 1;
   //The new global state root
   string new_root = 2;
+  //The previous global state root
+  string old_root = 1;
   //The change in state applied in this block, given as a mapping of addresses to the new values and/or new contracts
   StateDiff state_diff = 3;
 }
@@ -359,7 +365,7 @@ message StateDiff {
   //The list of contracts whose class was replaced
   repeated ReplacedClass replaced_classes = 5;
   //The updated nonce per contract address
-  repeated NonceDiff nonce_diffs = 6; //Do we need this?
+  repeated NonceDiff nonces = 6; //Do we need this?
 }
 
 message NonceDiff {
