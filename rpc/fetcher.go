@@ -484,7 +484,7 @@ func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt)
 			Amount: convertFelt(common.ActualFee.Amount),
 			Unit:   string(common.ActualFee.Unit),
 		},
-		ExecutionStatus:    convertFelt(common.ExecutionStatus),
+		ExecutionStatus:    string(common.ExecutionStatus),
 		MessagesSent:       convertMessageSent(common.MessagesSent),
 		RevertReason:       common.RevertReason,
 		Events:             convertEvents(common.Events),
