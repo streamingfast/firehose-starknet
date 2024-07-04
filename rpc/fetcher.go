@@ -81,6 +81,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
+	//todo: call only once every 5 min
 	lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching LIB: %w", err)
@@ -223,9 +224,9 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 		BlockHash:        b.BlockHash.String(),
 		BlockNumber:      b.BlockNumber,
 		L1DaMode:         convertL1DAMode(b.L1DAMode),
-		NewRoot:          b.NewRoot.String(),
-		ParentHash:       b.ParentHash.String(),
-		SequencerAddress: b.SequencerAddress.String(),
+		NewRoot:          convertFelt(b.NewRoot),
+		ParentHash:       convertFelt(b.ParentHash),
+		SequencerAddress: convertFelt(b.SequencerAddress),
 		StarknetVersion:  b.StarknetVersion,
 		Timestamp:        b.Timestamp,
 		L1DataGasPrice:   convertL1DataGasPrice(b.L1DataGasPrice),
@@ -271,8 +272,8 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 
 func convertStateUpdate(s *starknetRPC.StateUpdateOutput) *pbstarknet.StateUpdate {
 	return &pbstarknet.StateUpdate{
-		OldRoot:   s.OldRoot.String(),
-		NewRoot:   s.NewRoot.String(),
+		OldRoot:   convertFelt(s.OldRoot),
+		NewRoot:   convertFelt(s.NewRoot),
 		StateDiff: convertStateDiff(s.StateDiff),
 	}
 }
@@ -293,8 +294,8 @@ func convertNonceDiffs(nonces []starknetRPC.ContractNonce) []*pbstarknet.NonceDi
 
 	for i, n := range nonces {
 		out[i] = &pbstarknet.NonceDiff{
-			ContractAddress: n.ContractAddress.String(),
-			Nonce:           n.Nonce.String(),
+			ContractAddress: convertFelt(n.ContractAddress),
+			Nonce:           convertFelt(n.Nonce),
 		}
 	}
 
@@ -306,12 +307,19 @@ func convertReplacedClasses(classes []starknetRPC.ReplacedClassesItem) []*pbstar
 
 	for i, c := range classes {
 		out[i] = &pbstarknet.ReplacedClass{
-			ContractAddress: c.ContractClass.String(),
-			ClassHash:       c.ClassHash.String(),
+			ContractAddress: convertFelt(c.ContractClass),
+			ClassHash:       convertFelt(c.ClassHash),
 		}
 	}
 
 	return out
+}
+
+func convertFelt(f *felt.Felt) string {
+	if f == nil {
+		return ""
+	}
+	return f.String()
 }
 
 func convertDeployedContracts(contracts []starknetRPC.DeployedContractItem) []*pbstarknet.DeployedContract {
@@ -319,8 +327,8 @@ func convertDeployedContracts(contracts []starknetRPC.DeployedContractItem) []*p
 
 	for i, c := range contracts {
 		out[i] = &pbstarknet.DeployedContract{
-			Address:   c.Address.String(),
-			ClassHash: c.ClassHash.String(),
+			Address:   convertFelt(c.Address),
+			ClassHash: convertFelt(c.ClassHash),
 		}
 	}
 
@@ -332,8 +340,8 @@ func convertDeclaredClasses(classes []starknetRPC.DeclaredClassesItem) []*pbstar
 
 	for i, c := range classes {
 		out[i] = &pbstarknet.DeclaredClass{
-			ClassHash:         c.ClassHash.String(),
-			CompiledClassHash: c.CompiledClassHash.String(),
+			ClassHash:         convertFelt(c.ClassHash),
+			CompiledClassHash: convertFelt(c.CompiledClassHash),
 		}
 	}
 
@@ -345,7 +353,7 @@ func convertStorageDiff(diffs []starknetRPC.ContractStorageDiffItem) []*pbstarkn
 
 	for i, d := range diffs {
 		out[i] = &pbstarknet.ContractStorageDiff{
-			Address:        d.Address.String(),
+			Address:        convertFelt(d.Address),
 			StorageEntries: convertStorageEntries(d.StorageEntries),
 		}
 	}
@@ -358,8 +366,8 @@ func convertStorageEntries(entries []starknetRPC.StorageEntry) []*pbstarknet.Sto
 
 	for i, e := range entries {
 		out[i] = &pbstarknet.StorageEntries{
-			Key:   e.Key.String(),
-			Value: e.Value.String(),
+			Key:   convertFelt(e.Key),
+			Value: convertFelt(e.Value),
 		}
 	}
 
@@ -471,12 +479,12 @@ func convertAndSetReceipt(in starknetRPC.TransactionReceipt) *pbstarknet.Transac
 func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt) *pbstarknet.TransactionReceipt {
 	return &pbstarknet.TransactionReceipt{
 		Type:            string(common.Type),
-		TransactionHash: common.TransactionHash.String(),
+		TransactionHash: convertFelt(common.TransactionHash),
 		ActualFee: &pbstarknet.ActualFee{
-			Amount: common.ActualFee.Amount.String(),
+			Amount: convertFelt(common.ActualFee.Amount),
 			Unit:   string(common.ActualFee.Unit),
 		},
-		ExecutionStatus:    common.ExecutionStatus.String(),
+		ExecutionStatus:    convertFelt(common.ExecutionStatus),
 		MessagesSent:       convertMessageSent(common.MessagesSent),
 		RevertReason:       common.RevertReason,
 		Events:             convertEvents(common.Events),
@@ -512,7 +520,7 @@ func convertEvents(events []starknetRPC.Event) []*pbstarknet.Event {
 
 	for i, e := range events {
 		out[i] = &pbstarknet.Event{
-			FromAddress: e.FromAddress.String(),
+			FromAddress: convertFelt(e.FromAddress),
 			Keys:        convertFeltArray(e.Keys),
 			Data:        convertFeltArray(e.Data),
 		}
@@ -526,8 +534,8 @@ func convertMessageSent(msg []starknetRPC.MsgToL1) []*pbstarknet.MessagesSent {
 
 	for i, m := range msg {
 		out[i] = &pbstarknet.MessagesSent{
-			FromAddress: m.FromAddress.String(),
-			ToAddress:   m.ToAddress.String(),
+			FromAddress: convertFelt(m.FromAddress),
+			ToAddress:   convertFelt(m.ToAddress),
 			Payload:     convertFeltArray(m.Payload),
 		}
 	}
@@ -539,11 +547,11 @@ func convertMessageSent(msg []starknetRPC.MsgToL1) []*pbstarknet.MessagesSent {
 func convertInvokeTransactionV0(tx starknetRPC.InvokeTxnV0) *pbstarknet.TransactionWithReceipt_InvokeTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV0{
 		InvokeTransactionV0: &pbstarknet.InvokeTransactionV0{
-			MaxFee:             tx.MaxFee.String(),
+			MaxFee:             convertFelt(tx.MaxFee),
 			Version:            string(tx.Version),
 			Signature:          convertFeltArray(tx.Signature),
-			ContractAddress:    tx.ContractAddress.String(),
-			EntryPointSelector: tx.EntryPointSelector.String(),
+			ContractAddress:    convertFelt(tx.ContractAddress),
+			EntryPointSelector: convertFelt(tx.EntryPointSelector),
 			Calldata:           convertFeltArray(tx.Calldata),
 		},
 	}
@@ -554,10 +562,10 @@ func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.Transact
 		InvokeTransactionV1: &pbstarknet.InvokeTransactionV1{
 			SenderAddress: tx.SenderAddress.String(),
 			Calldata:      convertFeltArray(tx.Calldata),
-			MaxFee:        tx.MaxFee.String(),
+			MaxFee:        convertFelt(tx.MaxFee),
 			Version:       string(tx.Version),
 			Signature:     convertFeltArray(tx.Signature),
-			Nonce:         tx.Nonce.String(),
+			Nonce:         convertFelt(tx.Nonce),
 		},
 	}
 }
@@ -565,11 +573,11 @@ func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.Transact
 func convertInvokeTransactionV3(tx starknetRPC.InvokeTxnV3) *pbstarknet.TransactionWithReceipt_InvokeTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV3{
 		InvokeTransactionV3: &pbstarknet.InvokeTransactionV3{
-			SenderAddress:             tx.SenderAddress.String(),
+			SenderAddress:             convertFelt(tx.SenderAddress),
 			Calldata:                  convertFeltArray(tx.Calldata),
 			Version:                   string(tx.Version),
 			Signature:                 convertFeltArray(tx.Signature),
-			Nonce:                     tx.Nonce.String(),
+			Nonce:                     convertFelt(tx.Nonce),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
 			Tip:                       string(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
@@ -585,8 +593,8 @@ func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.Transa
 		L1HandlerTransaction: &pbstarknet.L1HandlerTransaction{
 			Version:            string(tx.Version),
 			Nonce:              tx.Nonce,
-			ContractAddress:    tx.ContractAddress.String(),
-			EntryPointSelector: tx.EntryPointSelector.String(),
+			ContractAddress:    convertFelt(tx.ContractAddress),
+			EntryPointSelector: convertFelt(tx.EntryPointSelector),
 			Calldata:           convertFeltArray(tx.Calldata),
 		},
 	}
@@ -595,11 +603,11 @@ func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.Transa
 func convertDeclareTransactionV0(tx starknetRPC.DeclareTxnV0) *pbstarknet.TransactionWithReceipt_DeclareTransactionV0 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV0{
 		DeclareTransactionV0: &pbstarknet.DeclareTransactionV0{
-			SenderAddress: tx.SenderAddress.String(),
-			MaxFee:        tx.MaxFee.String(),
+			SenderAddress: convertFelt(tx.SenderAddress),
+			MaxFee:        convertFelt(tx.MaxFee),
 			Version:       string(tx.Version),
 			Signature:     convertFeltArray(tx.Signature),
-			ClassHash:     tx.ClassHash.String(),
+			ClassHash:     convertFelt(tx.ClassHash),
 		},
 	}
 }
@@ -607,12 +615,12 @@ func convertDeclareTransactionV0(tx starknetRPC.DeclareTxnV0) *pbstarknet.Transa
 func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.TransactionWithReceipt_DeclareTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV1{
 		DeclareTransactionV1: &pbstarknet.DeclareTransactionV1{
-			SenderAddress: tx.SenderAddress.String(),
-			MaxFee:        tx.MaxFee.String(),
+			SenderAddress: convertFelt(tx.SenderAddress),
+			MaxFee:        convertFelt(tx.MaxFee),
 			Version:       string(tx.Version),
 			Signature:     convertFeltArray(tx.Signature),
-			Nonce:         tx.Nonce.String(),
-			ClassHash:     tx.ClassHash.String(),
+			Nonce:         convertFelt(tx.Nonce),
+			ClassHash:     convertFelt(tx.ClassHash),
 		},
 	}
 }
@@ -620,24 +628,24 @@ func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.Transa
 func convertDeclareTransactionV2(tx starknetRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV2{
 		DeclareTransactionV2: &pbstarknet.DeclareTransactionV2{
-			SenderAddress: tx.SenderAddress.String(),
-			MaxFee:        tx.MaxFee.String(),
+			SenderAddress: convertFelt(tx.SenderAddress),
+			MaxFee:        convertFelt(tx.MaxFee),
 			Version:       string(tx.Version),
 			Signature:     convertFeltArray(tx.Signature),
-			Nonce:         tx.Nonce.String(),
-			ClassHash:     tx.ClassHash.String(),
+			Nonce:         convertFelt(tx.Nonce),
+			ClassHash:     convertFelt(tx.ClassHash),
 		},
 	}
 }
 func convertDeclareTransactionV3(tx starknetRPC.DeclareTxnV3) *pbstarknet.TransactionWithReceipt_DeclareTransactionV3 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV3{
 		DeclareTransactionV3: &pbstarknet.DeclareTransactionV3{
-			SenderAddress:             tx.SenderAddress.String(),
-			CompiledClassHash:         tx.CompiledClassHash.String(),
+			SenderAddress:             convertFelt(tx.SenderAddress),
+			CompiledClassHash:         convertFelt(tx.CompiledClassHash),
 			Version:                   string(tx.Version),
 			Signature:                 convertFeltArray(tx.Signature),
-			Nonce:                     tx.Nonce.String(),
-			ClassHash:                 tx.ClassHash.String(),
+			Nonce:                     convertFelt(tx.Nonce),
+			ClassHash:                 convertFelt(tx.ClassHash),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
 			Tip:                       string(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
@@ -652,9 +660,9 @@ func convertDeployTransactionV0(tx starknetRPC.DeployTxn) *pbstarknet.Transactio
 	return &pbstarknet.TransactionWithReceipt_DeployTransactionV0{
 		DeployTransactionV0: &pbstarknet.DeployTransactionV0{
 			Version:             string(tx.Version),
-			ContractAddressSalt: tx.ContractAddressSalt.String(),
+			ContractAddressSalt: convertFelt(tx.ContractAddressSalt),
 			ConstructorCalldata: convertFeltArray(tx.ConstructorCalldata),
-			ClassHash:           tx.ClassHash.String(),
+			ClassHash:           convertFelt(tx.ClassHash),
 		},
 	}
 
@@ -663,13 +671,13 @@ func convertDeployTransactionV0(tx starknetRPC.DeployTxn) *pbstarknet.Transactio
 func convertDeployAccountTransactionV0(tx starknetRPC.DeployAccountTxn) *pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_DeployAccountTransactionV1{
 		DeployAccountTransactionV1: &pbstarknet.DeployAccountTransactionV1{
-			MaxFee:              tx.MaxFee.String(),
+			MaxFee:              convertFelt(tx.MaxFee),
 			Version:             string(tx.Version),
 			Signature:           convertFeltArray(tx.Signature),
-			Nonce:               tx.Nonce.String(),
-			ContractAddressSalt: tx.ContractAddressSalt.String(),
+			Nonce:               convertFelt(tx.Nonce),
+			ContractAddressSalt: convertFelt(tx.ContractAddressSalt),
 			ConstructorCalldata: convertFeltArray(tx.ConstructorCalldata),
-			ClassHash:           tx.ClassHash.String(),
+			ClassHash:           convertFelt(tx.ClassHash),
 		},
 	}
 
@@ -680,9 +688,9 @@ func convertDeployAccountTransactionV3(tx starknetRPC.DeployAccountTxnV3) *pbsta
 		DeployAccountTransactionV3: &pbstarknet.DeployAccountTransactionV3{
 			Version:                   string(tx.Version),
 			Signature:                 convertFeltArray(tx.Signature),
-			Nonce:                     tx.Nonce.String(),
-			ContractAddressSalt:       tx.ContractAddressSalt.String(),
-			ClassHash:                 tx.ClassHash.String(),
+			Nonce:                     convertFelt(tx.Nonce),
+			ContractAddressSalt:       convertFelt(tx.ContractAddressSalt),
+			ClassHash:                 convertFelt(tx.ClassHash),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
 			Tip:                       string(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
