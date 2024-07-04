@@ -124,8 +124,9 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	if err != nil {
 		return fmt.Errorf("fetching rpc block: %w", err)
 	}
-	jqOgBlock, err := jq(`
-		del(
+
+	jqQueries = []string{
+		`del(
 			.status,
 			.transactions[].invoke_transaction_v0.type,
 			.transactions[].invoke_transaction_v1.type,
@@ -139,7 +140,11 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 			.transactions[].deploy_account_transaction_v1.type,
 			.transactions[].deploy_account_transaction_v3.type,
             .transactions[].receipt.finality_status
-			)`, ogBlockData)
+			)`,
+		`(.. | select(type == "null")) |= ""`,
+	}
+
+	jqOgBlock, err := jqs(jqQueries, ogBlockData)
 	if err != nil {
 		return fmt.Errorf("jqing og block: %w", err)
 	}
@@ -181,7 +186,10 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 		return fmt.Errorf("fetching state update: %w", err)
 	}
 
-	jqOgStateUpdate, err := jqs([]string{`del(.block_hash)`}, ogStateUpdate)
+	jqOgStateUpdate, err := jqs([]string{
+		`del(.block_hash)`,
+		`(.. | select(type == "null")) |= ""`,
+	}, ogStateUpdate)
 
 	ogStateUpdatePretty, err := pretty(jqOgStateUpdate)
 	if err != nil {
