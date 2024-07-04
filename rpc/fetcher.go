@@ -29,7 +29,9 @@ type Fetcher struct {
 	logger                   *zap.Logger
 	latestBlockNum           uint64
 
-	ethCallLIBParams ethRPC.CallParams
+	ethCallLIBParams             ethRPC.CallParams
+	lastL1AcceptedBlock          uint64
+	lastL1AcceptedBlockFetchTime time.Time
 }
 
 func NewFetcher(
@@ -81,10 +83,14 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
-	//todo: call only once every 5 min
-	lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock(ctx)
-	if err != nil {
-		return nil, false, fmt.Errorf("fetching LIB: %w", err)
+	if f.lastL1AcceptedBlock == 0 || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
+		f.logger.Info("fetching last L1 accepted block")
+		lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock(ctx)
+		if err != nil {
+			return nil, false, fmt.Errorf("fetching LIB: %w", err)
+		}
+		f.lastL1AcceptedBlock = lastL1AcceptedBlock
+		f.lastL1AcceptedBlockFetchTime = time.Now()
 	}
 
 	stateUpdate, err := FetchStateUpdate(ctx, f.starknetClients, requestBlockNum)
@@ -93,7 +99,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 	}
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, lastL1AcceptedBlock)
+	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, f.lastL1AcceptedBlock)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
 	}
