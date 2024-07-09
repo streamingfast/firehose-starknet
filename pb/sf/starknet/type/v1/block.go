@@ -1,9 +1,15 @@
 package pbstarknet
 
-import "time"
+import (
+	"time"
+
+	"github.com/NethermindEth/juno/core/felt"
+)
 
 func (x *Block) GetFirehoseBlockID() string {
-	return x.BlockHash
+	f := &felt.Felt{}
+	f = f.SetBytes(x.BlockHash)
+	return f.String()
 }
 
 func (x *Block) GetFirehoseBlockNumber() uint64 {
@@ -11,7 +17,9 @@ func (x *Block) GetFirehoseBlockNumber() uint64 {
 }
 
 func (x *Block) GetFirehoseBlockParentID() string {
-	return x.ParentHash
+	f := &felt.Felt{}
+	f = f.SetBytes(x.ParentHash)
+	return f.String()
 }
 
 func (x *Block) GetFirehoseBlockParentNumber() uint64 {

@@ -11,7 +11,6 @@ import (
 
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
 	"github.com/hexops/gotextdiff"
 	"github.com/hexops/gotextdiff/myers"
 	"github.com/hexops/gotextdiff/span"
@@ -22,7 +21,6 @@ import (
 	"github.com/streamingfast/logging"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func NewTestBlockCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
@@ -39,32 +37,7 @@ func NewTestBlockCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 	return cmd
 }
 
-var protoOptions = protojson.MarshalOptions{
-	Multiline:         true,
-	Indent:            "  ",
-	AllowPartial:      false,
-	UseProtoNames:     true,
-	UseEnumNumbers:    false,
-	EmitUnpopulated:   false,
-	EmitDefaultValues: true,
-	Resolver:          nil,
-}
-
-var marshalers = json.NewMarshalers(
-	json.MarshalFuncV2(encodeTransactionWithReceipt),
-)
-
-var jsonOptions = []json.Options{
-	json.StringifyNumbers(true),
-	json.RejectUnknownMembers(false),
-}
-
-func init() {
-	jsonOptions = append(jsonOptions, json.WithMarshalers(marshalers))
-}
-
 func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, args []string) error {
-
 	blockNum, err := strconv.ParseUint(args[0], 10, 64)
 	if err != nil {
 		return fmt.Errorf("parsing block number: %w", err)
@@ -99,10 +72,12 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 		`del(.transactions[].receipt.contract_address | (select(. == "")))`,
 		`del(.transactions[].receipt.message_hash | (select(. == "")))`,
 		`del(.transactions[].receipt.revert_reason | (select(. == "")))`,
+		`del(.transactions[].receipt.contract_address | (select(. == "0x0")))`,
 	}
 
 	sfJqBlock, err := jqs(jqQueries, sfBlockData)
 	if err != nil {
+		fmt.Println(string(sfBlockData))
 		return fmt.Errorf("jqing sf block: %w", err)
 	}
 
@@ -142,6 +117,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
             .transactions[].receipt.finality_status
 			)`,
 		`(.. | select(type == "null")) |= ""`,
+		`del(.. | select(length == 0))`,
 	}
 
 	jqOgBlock, err := jqs(jqQueries, ogBlockData)
@@ -165,14 +141,28 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	edits := myers.ComputeEdits(span.URIFromPath("block"), string(sfBlockPretty), string(ogBlockPretty))
 	diff := fmt.Sprint(gotextdiff.ToUnified("sf", "og", string(sfBlockPretty), edits))
 	fmt.Println(diff)
+	if len(edits) > 0 {
+		return fmt.Errorf("block has diffs")
+	}
 
 	// ---------------------------------------------------------
 	// SF State Update
 	// ---------------------------------------------------------
-	sfStateUpdatePretty, err := pretty(sfStateUpdateData)
+	jqQueries = []string{
+		`del(.state_diff.replaced_classes[]?.contract_address? | (select(. == "0x0")))`,
+		`del(.. | select(length == 0))`,
+	}
+
+	jqSfStateUpdate, err := jqs(jqQueries, sfStateUpdateData)
+	if err != nil {
+		return fmt.Errorf("jqing sf state: %w", err)
+	}
+
+	sfStateUpdatePretty, err := pretty(jqSfStateUpdate)
 	if err != nil {
 		return fmt.Errorf("prettying sf block: %w", err)
 	}
+
 	err = ioutil.WriteFile("sf-state.json", sfStateUpdatePretty, 0644)
 	if err != nil {
 		return fmt.Errorf("writing sf state: %w", err)
@@ -189,6 +179,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	jqOgStateUpdate, err := jqs([]string{
 		`del(.block_hash)`,
 		`(.. | select(type == "null")) |= ""`,
+		`del(.. | select(length == 0))`,
 	}, ogStateUpdate)
 
 	ogStateUpdatePretty, err := pretty(jqOgStateUpdate)
@@ -207,6 +198,10 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	diff = fmt.Sprint(gotextdiff.ToUnified("sf", "og", string(sfStateUpdatePretty), edits))
 	fmt.Println(diff)
 
+	if len(edits) > 0 {
+		return fmt.Errorf("state update has diffs")
+	}
+
 	return nil
 }
 
@@ -217,14 +212,17 @@ func sfBlockData(ctx context.Context, fetcher *rpc.Fetcher, blockNum uint64) ([]
 	}
 
 	block := &pbstarknet.Block{}
-	bstreamBlock.Payload.UnmarshalTo(block)
-
-	blockData, err := protoOptions.Marshal(block)
+	err = bstreamBlock.Payload.UnmarshalTo(block)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshalling block: %w", err)
+		return nil, nil, fmt.Errorf("unmarshalling block: %w", err)
 	}
 
-	stateUpdateData, err := protoOptions.Marshal(block.StateUpdate)
+	blockData, err := json.Marshal(block, jsonOptions...)
+
+	stateUpdateData, err := json.Marshal(block.StateUpdate, jsonOptions...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshalling state update: %w", err)
+	}
 
 	return blockData, stateUpdateData, nil
 }
@@ -306,94 +304,4 @@ func pretty(b []byte) ([]byte, error) {
 	r := gjson.ParseBytes(b)
 	r = r.Get(`@pretty:{"sortKeys":true} `)
 	return []byte(r.Raw), nil
-}
-
-func encodeTransactionWithReceipt(encoder *jsontext.Encoder, transactionWithReceipt starknetRPC.TransactionWithReceipt, options json.Options) error {
-
-	tx := transactionWithReceipt.Transaction.Transaction
-
-	name := mustTransactionName(tx)
-	cnt, err := json.Marshal(
-		tx,
-		jsonOptions...,
-	)
-
-	if err != nil {
-		return fmt.Errorf("json marshalling tx: %w", err)
-	}
-
-	if err := encoder.WriteToken(jsontext.ObjectStart); err != nil {
-		return fmt.Errorf("writing ObjectStart token: %w", err)
-	}
-
-	if err := encoder.WriteToken(jsontext.String(name)); err != nil {
-		return fmt.Errorf("writing token: %w", err)
-	}
-
-	if err := encoder.WriteValue(cnt); err != nil {
-		return fmt.Errorf("writing tx value: %w", err)
-	}
-
-	if err := encoder.WriteToken(jsontext.String("receipt")); err != nil {
-		return fmt.Errorf("writing token: %w", err)
-	}
-
-	receipt := transactionWithReceipt.Receipt.TransactionReceipt
-	cnt, err = json.Marshal(
-		receipt,
-		jsonOptions...,
-	)
-	if err != nil {
-		return fmt.Errorf("json marshalling receipt: %w", err)
-	}
-
-	if err := encoder.WriteValue(cnt); err != nil {
-		return fmt.Errorf("writing receipt value: %w", err)
-	}
-
-	if err := encoder.WriteToken(jsontext.ObjectEnd); err != nil {
-		return fmt.Errorf("writing ObjectEnd token: %w", err)
-	}
-
-	return nil
-}
-
-func mustTransactionName(tx starknetRPC.Transaction) string {
-	switch t := tx.(type) {
-	case starknetRPC.InvokeTxnV0:
-		t.Type = ""
-		return "invoke_transaction_v0"
-	case starknetRPC.InvokeTxnV1:
-		t.Type = ""
-		return "invoke_transaction_v1"
-	case starknetRPC.InvokeTxnV3:
-		t.Type = ""
-		return "invoke_transaction_v3"
-	case starknetRPC.L1HandlerTxn:
-		t.Type = ""
-		return "l1_handler_transaction"
-	case starknetRPC.DeclareTxnV0:
-		t.Type = ""
-		return "declare_transaction_v0"
-	case starknetRPC.DeclareTxnV1:
-		t.Type = ""
-		return "declare_transaction_v1"
-	case starknetRPC.DeclareTxnV2:
-		t.Type = ""
-		return "declare_transaction_v2"
-	case starknetRPC.DeclareTxnV3:
-		t.Type = ""
-		return "declare_transaction_v3"
-	case starknetRPC.DeployTxn:
-		t.Type = ""
-		return "deploy_transaction_v0"
-	case starknetRPC.DeployAccountTxn:
-		t.Type = ""
-		return "deploy_account_transaction_v1"
-	case starknetRPC.DeployAccountTxnV3:
-		t.Type = ""
-		return "deploy_account_transaction_v3"
-	default:
-		panic(fmt.Errorf("unknown transaction type %T", tx))
-	}
 }

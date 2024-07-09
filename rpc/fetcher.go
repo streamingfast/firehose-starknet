@@ -145,7 +145,7 @@ func FetchStateUpdate(ctx context.Context, starknetClients *firecoreRPC.Clients[
 	})
 
 	slices.SortFunc(updates.StateDiff.ReplacedClasses, func(a, b starknetRPC.ReplacedClassesItem) int {
-		return strings.Compare(a.ContractClass.String(), b.ContractClass.String())
+		return strings.Compare(a.ClassHash.String(), b.ClassHash.String())
 	})
 
 	slices.SortFunc(updates.StateDiff.Nonces, func(a, b starknetRPC.ContractNonce) int {
@@ -227,7 +227,7 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 	}
 	stateUpdate := convertStateUpdate(s)
 	block := &pbstarknet.Block{
-		BlockHash:        b.BlockHash.String(),
+		BlockHash:        convertFelt(b.BlockHash),
 		BlockNumber:      b.BlockNumber,
 		L1DaMode:         convertL1DAMode(b.L1DAMode),
 		NewRoot:          convertFelt(b.NewRoot),
@@ -263,10 +263,14 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 
 	libNum := parentBlockNum
 
+	id := &felt.Felt{}
+	id = id.SetBytes(block.BlockHash)
+	parentId := &felt.Felt{}
+	parentId = parentId.SetBytes(block.ParentHash)
 	bstreamBlock := &pbbstream.Block{
 		Number:    block.BlockNumber,
-		Id:        block.BlockHash,
-		ParentId:  block.ParentHash,
+		Id:        id.String(),
+		ParentId:  parentId.String(),
 		Timestamp: timestamppb.New(time.Unix(int64(block.Timestamp), 0)),
 		LibNum:    libNum,
 		ParentNum: parentBlockNum,
@@ -321,11 +325,12 @@ func convertReplacedClasses(classes []starknetRPC.ReplacedClassesItem) []*pbstar
 	return out
 }
 
-func convertFelt(f *felt.Felt) string {
+func convertFelt(f *felt.Felt) []byte {
 	if f == nil {
-		return ""
+		return nil
 	}
-	return f.String()
+	d := f.Bytes()
+	return d[:]
 }
 
 func convertDeployedContracts(contracts []starknetRPC.DeployedContractItem) []*pbstarknet.DeployedContract {
@@ -392,31 +397,31 @@ func convertL1DAMode(mode starknetRPC.L1DAMode) pbstarknet.L1_DA_MODE {
 }
 
 func convertL1DataGasPrice(l starknetRPC.ResourcePrice) *pbstarknet.ResourcePrice {
-	f := "0x0"
+	f := &felt.Zero
 	if l.PriceInFRI != nil {
-		f = l.PriceInFRI.String()
+		f = l.PriceInFRI
 	}
-	w := "0x0"
+	w := &felt.Zero
 	if l.PriceInWei != nil {
-		w = l.PriceInWei.String()
+		w = l.PriceInWei
 	}
 	return &pbstarknet.ResourcePrice{
-		PriceInFri: f,
-		PriceInWei: w,
+		PriceInFri: convertFelt(f),
+		PriceInWei: convertFelt(w),
 	}
 }
 func convertL1GasPrice(l starknetRPC.ResourcePrice) *pbstarknet.ResourcePrice {
-	f := "0x0"
+	f := &felt.Zero
 	if l.PriceInFRI != nil {
-		f = l.PriceInFRI.String()
+		f = l.PriceInFRI
 	}
-	w := "0x0"
+	w := &felt.Zero
 	if l.PriceInWei != nil {
-		w = l.PriceInWei.String()
+		w = l.PriceInWei
 	}
 	return &pbstarknet.ResourcePrice{
-		PriceInFri: f,
-		PriceInWei: w,
+		PriceInFri: convertFelt(f),
+		PriceInWei: convertFelt(w),
 	}
 }
 
@@ -472,10 +477,10 @@ func convertAndSetReceipt(in starknetRPC.TransactionReceipt) *pbstarknet.Transac
 		out.MessageHash = string(r.MessageHash)
 	case starknetRPC.DeployTransactionReceipt:
 		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
-		out.ContractAddress = r.ContractAddress.String()
+		out.ContractAddress = convertFelt(r.ContractAddress)
 	case starknetRPC.DeployAccountTransactionReceipt:
 		out = createCommonTransactionReceipt(r.CommonTransactionReceipt)
-		out.ContractAddress = r.ContractAddress.String()
+		out.ContractAddress = convertFelt(r.ContractAddress)
 	default:
 		panic(fmt.Errorf("unknown receipt type %T", in))
 	}
@@ -484,17 +489,45 @@ func convertAndSetReceipt(in starknetRPC.TransactionReceipt) *pbstarknet.Transac
 
 func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt) *pbstarknet.TransactionReceipt {
 	return &pbstarknet.TransactionReceipt{
-		Type:            string(common.Type),
+		Type:            convertTransactionType(common.Type),
 		TransactionHash: convertFelt(common.TransactionHash),
 		ActualFee: &pbstarknet.ActualFee{
 			Amount: convertFelt(common.ActualFee.Amount),
 			Unit:   string(common.ActualFee.Unit),
 		},
-		ExecutionStatus:    string(common.ExecutionStatus),
+		ExecutionStatus:    convertExecutionStature(common.ExecutionStatus),
 		MessagesSent:       convertMessageSent(common.MessagesSent),
 		RevertReason:       common.RevertReason,
 		Events:             convertEvents(common.Events),
 		ExecutionResources: convertExecutionResources(common.ExecutionResources),
+	}
+}
+
+func convertExecutionStature(status starknetRPC.TxnExecutionStatus) pbstarknet.EXECUTION_STATUS {
+	switch status {
+	case starknetRPC.TxnExecutionStatusSUCCEEDED:
+		return pbstarknet.EXECUTION_STATUS_EXECUTION_STATUS_SUCCESS
+	case starknetRPC.TxnExecutionStatusREVERTED:
+		return pbstarknet.EXECUTION_STATUS_EXECUTION_STATUS_REVERTED
+	default:
+		panic(fmt.Errorf("unknown execution status %v", status))
+	}
+}
+
+func convertTransactionType(transactionType starknetRPC.TransactionType) pbstarknet.TRANSACTION_TYPE {
+	switch transactionType {
+	case starknetRPC.TransactionType_Invoke:
+		return pbstarknet.TRANSACTION_TYPE_INVOKE
+	case starknetRPC.TransactionType_Declare:
+		return pbstarknet.TRANSACTION_TYPE_DECLARE
+	case starknetRPC.TransactionType_L1Handler:
+		return pbstarknet.TRANSACTION_TYPE_L1_HANDLER
+	case starknetRPC.TransactionType_Deploy:
+		return pbstarknet.TRANSACTION_TYPE_DEPLOY
+	case starknetRPC.TransactionType_DeployAccount:
+		return pbstarknet.TRANSACTION_TYPE_DEPLOY_ACCOUNT
+	default:
+		panic(fmt.Errorf("unknown transaction type %v", transactionType))
 	}
 }
 
@@ -566,7 +599,7 @@ func convertInvokeTransactionV0(tx starknetRPC.InvokeTxnV0) *pbstarknet.Transact
 func convertInvokeTransactionV1(tx starknetRPC.InvokeTxnV1) *pbstarknet.TransactionWithReceipt_InvokeTransactionV1 {
 	return &pbstarknet.TransactionWithReceipt_InvokeTransactionV1{
 		InvokeTransactionV1: &pbstarknet.InvokeTransactionV1{
-			SenderAddress: tx.SenderAddress.String(),
+			SenderAddress: convertFelt(tx.SenderAddress),
 			Calldata:      convertFeltArray(tx.Calldata),
 			MaxFee:        convertFelt(tx.MaxFee),
 			Version:       string(tx.Version),
@@ -585,13 +618,22 @@ func convertInvokeTransactionV3(tx starknetRPC.InvokeTxnV3) *pbstarknet.Transact
 			Signature:                 convertFeltArray(tx.Signature),
 			Nonce:                     convertFelt(tx.Nonce),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
-			Tip:                       string(tx.Tip),
+			Tip:                       mustConvertTip(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
 			AccountDeploymentData:     convertFeltArray(tx.AccountDeploymentData),
-			NonceDataAvailabilityMode: string(tx.NonceDataMode),
-			FeeDataAvailabilityMode:   string(tx.FeeMode),
+			NonceDataAvailabilityMode: convertFeeMode(tx.NonceDataMode),
+			FeeDataAvailabilityMode:   convertFeeMode(tx.FeeMode),
 		},
 	}
+}
+
+func mustConvertTip(tip starknetRPC.U64) []byte {
+	f := &felt.Felt{}
+	f, err := f.SetString(string(tip))
+	if err != nil {
+		panic(fmt.Errorf("unable to convert tip %v: %w", tip, err))
+	}
+	return f.Marshal()
 }
 
 func convertL1HandlerTransaction(tx starknetRPC.L1HandlerTxn) *pbstarknet.TransactionWithReceipt_L1HandlerTransaction {
@@ -634,12 +676,13 @@ func convertDeclareTransactionV1(tx starknetRPC.DeclareTxnV1) *pbstarknet.Transa
 func convertDeclareTransactionV2(tx starknetRPC.DeclareTxnV2) *pbstarknet.TransactionWithReceipt_DeclareTransactionV2 {
 	return &pbstarknet.TransactionWithReceipt_DeclareTransactionV2{
 		DeclareTransactionV2: &pbstarknet.DeclareTransactionV2{
-			SenderAddress: convertFelt(tx.SenderAddress),
-			MaxFee:        convertFelt(tx.MaxFee),
-			Version:       string(tx.Version),
-			Signature:     convertFeltArray(tx.Signature),
-			Nonce:         convertFelt(tx.Nonce),
-			ClassHash:     convertFelt(tx.ClassHash),
+			SenderAddress:     convertFelt(tx.SenderAddress),
+			CompiledClassHash: convertFelt(tx.CompiledClassHash),
+			MaxFee:            convertFelt(tx.MaxFee),
+			Version:           string(tx.Version),
+			Signature:         convertFeltArray(tx.Signature),
+			Nonce:             convertFelt(tx.Nonce),
+			ClassHash:         convertFelt(tx.ClassHash),
 		},
 	}
 }
@@ -653,11 +696,11 @@ func convertDeclareTransactionV3(tx starknetRPC.DeclareTxnV3) *pbstarknet.Transa
 			Nonce:                     convertFelt(tx.Nonce),
 			ClassHash:                 convertFelt(tx.ClassHash),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
-			Tip:                       string(tx.Tip),
+			Tip:                       mustConvertTip(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
 			AccountDeploymentData:     convertFeltArray(tx.AccountDeploymentData),
-			NonceDataAvailabilityMode: string(tx.NonceDataMode),
-			FeeDataAvailabilityMode:   string(tx.FeeMode),
+			NonceDataAvailabilityMode: convertFeeMode(tx.NonceDataMode),
+			FeeDataAvailabilityMode:   convertFeeMode(tx.FeeMode),
 		},
 	}
 }
@@ -698,18 +741,37 @@ func convertDeployAccountTransactionV3(tx starknetRPC.DeployAccountTxnV3) *pbsta
 			ContractAddressSalt:       convertFelt(tx.ContractAddressSalt),
 			ClassHash:                 convertFelt(tx.ClassHash),
 			ResourceBounds:            convertResourceBounds(tx.ResourceBounds),
-			Tip:                       string(tx.Tip),
+			Tip:                       mustConvertTip(tx.Tip),
 			PaymasterData:             convertFeltArray(tx.PayMasterData),
-			NonceDataAvailabilityMode: string(tx.NonceDataMode),
-			FeeDataAvailabilityMode:   string(tx.FeeMode),
+			NonceDataAvailabilityMode: convertFeeMode(tx.NonceDataMode),
+			FeeDataAvailabilityMode:   convertFeeMode(tx.FeeMode),
 		},
 	}
 }
 
-func convertFeltArray(in []*felt.Felt) []string {
-	var out []string
+func mustConvertU64(n starknetRPC.U64) uint64 {
+	i, err := n.ToUint64()
+	if err != nil {
+		panic(fmt.Errorf("converting U64 to uint64: %w", err))
+	}
+	return i
+}
+
+func convertFeeMode(m starknetRPC.DataAvailabilityMode) pbstarknet.FEE_DATA_AVAILABILITY_MODE {
+	switch m {
+	case starknetRPC.DAModeL1:
+		return pbstarknet.FEE_DATA_AVAILABILITY_MODE_L1
+	case starknetRPC.DAModeL2:
+		return pbstarknet.FEE_DATA_AVAILABILITY_MODE_L2
+	default:
+		panic(fmt.Errorf("unknown fee mode %v", m))
+	}
+}
+
+func convertFeltArray(in []*felt.Felt) [][]byte {
+	var out [][]byte
 	for _, f := range in {
-		out = append(out, f.String())
+		out = append(out, convertFelt(f))
 	}
 	return out
 }
