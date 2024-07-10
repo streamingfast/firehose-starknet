@@ -73,6 +73,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 		`del(.transactions[].receipt.message_hash | (select(. == "")))`,
 		`del(.transactions[].receipt.revert_reason | (select(. == "")))`,
 		`del(.transactions[].receipt.contract_address | (select(. == "0x0")))`,
+		`walk(if type == "object" then with_entries(select(.key != "max_fee" or .value != "0x0")) else . end)`,
 	}
 
 	sfJqBlock, err := jqs(jqQueries, sfBlockData)
@@ -115,9 +116,11 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 			.transactions[].deploy_account_transaction_v1.type,
 			.transactions[].deploy_account_transaction_v3.type,
             .transactions[].receipt.finality_status
+		
 			)`,
 		`(.. | select(type == "null")) |= ""`,
 		`del(.. | select(length == 0))`,
+		`walk(if type == "object" then with_entries(select(.key != "max_fee" or .value != "0x0")) else . end)`,
 	}
 
 	jqOgBlock, err := jqs(jqQueries, ogBlockData)
