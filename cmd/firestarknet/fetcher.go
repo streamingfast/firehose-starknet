@@ -1,10 +1,11 @@
 package main
 
 import (
-	"firehose-starknet/rpc"
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/streamingfast/firehose-starknet/rpc"
 
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/spf13/cobra"

@@ -1,8 +1,9 @@
 package main
 
 import (
-	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
 	"fmt"
+
+	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
 
 	"github.com/NethermindEth/juno/core/felt"
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"

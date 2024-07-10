@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
-	"firehose-starknet/rpc"
 	"fmt"
 	"io/ioutil"
 	"strconv"
 	"time"
+
+	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
+	"github.com/streamingfast/firehose-starknet/rpc"
 
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/go-json-experiment/json"

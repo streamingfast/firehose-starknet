@@ -1,4 +1,4 @@
-module firehose-starknet
+module github.com/streamingfast/firehose-starknet
 
 go 1.22.0
 

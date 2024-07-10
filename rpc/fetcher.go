@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	pbstarknet "firehose-starknet/pb/sf/starknet/type/v1"
+	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
 
 	"github.com/NethermindEth/juno/core/felt"
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
