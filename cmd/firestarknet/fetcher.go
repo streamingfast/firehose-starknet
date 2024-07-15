@@ -28,7 +28,7 @@ func NewFetchCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 
 	cmd.Flags().StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
 	cmd.Flags().StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
-	cmd.Flags().String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum")
+	cmd.Flags().String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum. For Starknet-Testnet, pass in 0xe2bb56ee936fd6433dc0f6e7e3b8365c906aa057")
 	cmd.Flags().String("state-dir", "/data/poller", "interval between fetch")
 	cmd.Flags().Duration("interval-between-fetch", 0, "interval between fetch")
 	cmd.Flags().Duration("latest-block-retry-interval", time.Second, "interval between fetch")
