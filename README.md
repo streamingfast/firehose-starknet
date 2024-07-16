@@ -21,7 +21,7 @@ Quickstart with Firehose for Starknet can be found in the official Firehose docs
 The below command with start streaming Firehose Starknet blocks, check `proto/sf/starknet/type/v1/block.proto` for more information.
 
 ```bash
-firestark fetch $FIRST_STREAMABLE_BLOCK --state-dir $STATE_DIR --block-fetch-batch-size=1 --interval-between-fetch=0s --latest-block-retry-interval=10s --starknet-endpoints $STARKNET_RPC_ENDPOINT --eth-endpoints $ETH_ENDPOINT
+firestarknet fetch $FIRST_STREAMABLE_BLOCK --state-dir $STATE_DIR --block-fetch-batch-size=1 --interval-between-fetch=0s --latest-block-retry-interval=10s --starknet-endpoints $STARKNET_RPC_ENDPOINT --eth-endpoints $ETH_ENDPOINT
 # FIRST_STREAMABLE_BLOCK: this would often be set to 0
 # STATE_DIR: Location to store the Firehose Starknet blocks
 # STARKNET_RPC_ENDPOINT: RPC Endpoint for Starknet to make calls to fetch blocks with receitps, state udpdate, block number and latest block number
