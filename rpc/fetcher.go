@@ -238,6 +238,7 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 		L1DataGasPrice:   convertL1DataGasPrice(b.L1DataGasPrice),
 		L1GasPrice:       convertL1GasPrice(b.L1GasPrice),
 		StateUpdate:      stateUpdate,
+		Status:           convertBlockStatus(b.BlockStatus),
 	}
 
 	transactions := make([]*pbstarknet.TransactionWithReceipt, 0, len(b.Transactions))
@@ -385,6 +386,32 @@ func convertStorageEntries(entries []starknetRPC.StorageEntry) []*pbstarknet.Sto
 	return out
 }
 
+func convertBlockStatus(status starknetRPC.BlockStatus) pbstarknet.BLOCK_STATUS {
+	switch status {
+	case starknetRPC.BlockStatus_AcceptedOnL1:
+		return pbstarknet.BLOCK_STATUS_BLOCK_STATUS_ACCEPTED_ON_L1
+	case starknetRPC.BlockStatus_AcceptedOnL2:
+		return pbstarknet.BLOCK_STATUS_BLOCK_STATUS_ACCEPTED_ON_L2
+	case starknetRPC.BlockStatus_Pending:
+		return pbstarknet.BLOCK_STATUS_BLOCK_STATUS_PENDING
+	case starknetRPC.BlockStatus_Rejected:
+		return pbstarknet.BLOCK_STATUS_BLOCK_STATUS_REJECTED
+	default:
+		panic(fmt.Errorf("unknown BlockStatus %v", status))
+	}
+}
+
+func convertTxnFinalityStatus(status starknetRPC.TxnFinalityStatus) pbstarknet.FINALITY_STATUS {
+	switch status {
+	case starknetRPC.TxnFinalityStatusAcceptedOnL1:
+		return pbstarknet.FINALITY_STATUS_FINALITY_STATUS_ACCEPTED_ON_L1
+	case starknetRPC.TxnFinalityStatusAcceptedOnL2:
+		return pbstarknet.FINALITY_STATUS_FINALITY_STATUS_ACCEPTED_ON_L2
+	default:
+		panic(fmt.Errorf("unknown BlockStatus %v", status))
+	}
+}
+
 func convertL1DAMode(mode starknetRPC.L1DAMode) pbstarknet.L1_DA_MODE {
 	switch mode {
 	case starknetRPC.L1DAModeBlob:
@@ -500,6 +527,7 @@ func createCommonTransactionReceipt(common starknetRPC.CommonTransactionReceipt)
 		RevertReason:       common.RevertReason,
 		Events:             convertEvents(common.Events),
 		ExecutionResources: convertExecutionResources(common.ExecutionResources),
+		FinalityStatus:     convertTxnFinalityStatus(common.FinalityStatus),
 	}
 }
 

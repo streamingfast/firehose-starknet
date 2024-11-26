@@ -30,6 +30,9 @@ message Block {
   repeated TransactionWithReceipt transactions = 11;
 
   StateUpdate state_update = 12;
+
+  // The block status, which can be one of - 'PENDING', 'ACCEPTED_ON_L2', 'ACCEPTED_ON_L1', 'REJECTED'
+  BLOCK_STATUS status = 13;
 }
 
 //specifies whether the data of this block is published via blob data or calldata
@@ -39,7 +42,7 @@ enum L1_DA_MODE {
   BLOB = 2;
 }
 
-enum FEE_DATA_AVAILABILITY_MODE {git p
+enum FEE_DATA_AVAILABILITY_MODE {
   FEE_DATA_AVAILABILITY_MODE_UNKNOWN = 0;
   L1 = 1;
   L2 = 2;
@@ -58,6 +61,20 @@ enum EXECUTION_STATUS {
   EXECUTION_STATUS_UNKNOWN = 0;
   EXECUTION_STATUS_SUCCESS = 1;
   EXECUTION_STATUS_REVERTED = 2;
+}
+
+enum BLOCK_STATUS {
+  BLOCK_STATUS_UNKNOWN = 0;
+  BLOCK_STATUS_ACCEPTED_ON_L1 = 1;
+  BLOCK_STATUS_ACCEPTED_ON_L2 = 2;
+  BLOCK_STATUS_PENDING = 3;
+  BLOCK_STATUS_REJECTED = 4;
+}
+
+enum FINALITY_STATUS {
+  FINALITY_STATUS_UNKNOWN = 0;
+  FINALITY_STATUS_ACCEPTED_ON_L1 = 1;
+  FINALITY_STATUS_ACCEPTED_ON_L2 = 2;
 }
 
 message ResourcePrice {
@@ -107,6 +124,8 @@ message TransactionReceipt{
   //The message hash as it appears on the L1 core contract
   bytes contract_address = 10;
 
+  // The finality status of the tx. Possible values includes - 'ACCEPTED_ON_L2' or 'ACCEPTED_ON_L1'
+  FINALITY_STATUS finality_status = 11;
 }
 
 message MessagesSent {
