@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
-
 	"github.com/NethermindEth/juno/core/felt"
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,13 +14,13 @@ import (
 	"github.com/streamingfast/eth-go"
 	ethRPC "github.com/streamingfast/eth-go/rpc"
 	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
+	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Fetcher struct {
-	starknetClients          *firecoreRPC.Clients[*starknetRPC.Provider]
 	ethClients               *firecoreRPC.Clients[*ethRPC.Client]
 	fetchInterval            time.Duration
 	latestBlockRetryInterval time.Duration
@@ -35,14 +33,12 @@ type Fetcher struct {
 }
 
 func NewFetcher(
-	starknetClients *firecoreRPC.Clients[*starknetRPC.Provider],
 	ethClient *firecoreRPC.Clients[*ethRPC.Client],
 	fetchLIBContractAddress string,
 	fetchInterval time.Duration,
 	latestBlockRetryInterval time.Duration,
 	logger *zap.Logger) *Fetcher {
 	return &Fetcher{
-		starknetClients:          starknetClients,
 		ethClients:               ethClient,
 		fetchInterval:            fetchInterval,
 		latestBlockRetryInterval: latestBlockRetryInterval,
@@ -55,14 +51,15 @@ func (f *Fetcher) IsBlockAvailable(blockNum uint64) bool {
 	return blockNum <= f.latestBlockNum
 }
 
-func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstream.Block, skipped bool, err error) {
+func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, requestBlockNum uint64) (b *pbbstream.Block, skipped bool, err error) {
+
 	f.logger.Info("fetching block", zap.Uint64("block_num", requestBlockNum))
 
 	sleepDuration := time.Duration(0)
 	for f.latestBlockNum < requestBlockNum {
 		time.Sleep(sleepDuration)
 
-		f.latestBlockNum, err = f.fetchLatestBlockNum(ctx)
+		f.latestBlockNum, err = f.fetchLatestBlockNum(ctx, client)
 		if err != nil {
 			return nil, false, fmt.Errorf("fetching latest block num: %w", err)
 		}
@@ -77,7 +74,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 	f.logger.Info("fetching block", zap.Uint64("block_num", requestBlockNum))
 	//at this time we getting the most recent accepted block number (L2)
-	blockWithReceipts, err := FetchBlock(ctx, f.starknetClients, requestBlockNum)
+	blockWithReceipts, err := FetchBlock(ctx, client, requestBlockNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching block %d: %w", requestBlockNum, err)
 	}
@@ -85,7 +82,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 	if f.lastL1AcceptedBlock == 0 || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
 		f.logger.Info("fetching last L1 accepted block")
-		lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock(ctx)
+		lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock()
 		if err != nil {
 			return nil, false, fmt.Errorf("fetching LIB: %w", err)
 		}
@@ -93,7 +90,7 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 		f.lastL1AcceptedBlockFetchTime = time.Now()
 	}
 
-	stateUpdate, err := FetchStateUpdate(ctx, f.starknetClients, requestBlockNum)
+	stateUpdate, err := FetchStateUpdate(ctx, client, requestBlockNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("fetching state update: %w", err)
 	}
@@ -108,15 +105,8 @@ func (f *Fetcher) Fetch(ctx context.Context, requestBlockNum uint64) (b *pbbstre
 
 }
 
-func FetchStateUpdate(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], blockNum uint64) (*starknetRPC.StateUpdateOutput, error) {
-	updates, err := firecoreRPC.WithClients(starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.StateUpdateOutput, error) {
-		i, err := client.StateUpdate(ctx, starknetRPC.WithBlockNumber(blockNum))
-		if err != nil {
-			return nil, fmt.Errorf("fetching state update: %w", err)
-		}
-		return i, nil
-	})
-
+func FetchStateUpdate(ctx context.Context, client *starknetRPC.Provider, blockNum uint64) (*starknetRPC.StateUpdateOutput, error) {
+	updates, err := client.StateUpdate(ctx, starknetRPC.WithBlockNumber(blockNum))
 	if err != nil {
 		return nil, fmt.Errorf("fetching state update: %w", err)
 	}
@@ -155,28 +145,25 @@ func FetchStateUpdate(ctx context.Context, starknetClients *firecoreRPC.Clients[
 	return updates, err
 }
 
-func (f *Fetcher) fetchBlockNumber(ctx context.Context, blockHash *felt.Felt) (uint64, error) {
-	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (uint64, error) {
-		bn, err := client.BlockWithTxHashes(ctx, starknetRPC.WithBlockHash(blockHash))
-		if err != nil {
-			return 0, fmt.Errorf("unable to fetch block number: %w", err)
-		}
-		return bn.(*starknetRPC.BlockTxHashes).BlockNumber, nil
-	})
+func (f *Fetcher) fetchBlockNumber(ctx context.Context, client *starknetRPC.Provider, blockHash *felt.Felt) (uint64, error) {
+	bn, err := client.BlockWithTxHashes(ctx, starknetRPC.WithBlockHash(blockHash))
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch block number: %w", err)
+	}
+	return bn.(*starknetRPC.BlockTxHashes).BlockNumber, nil
 }
 
-func (f *Fetcher) fetchLatestBlockNum(ctx context.Context) (uint64, error) {
-	return firecoreRPC.WithClients(f.starknetClients, func(client *starknetRPC.Provider) (uint64, error) {
-		blockNum, err := client.BlockNumber(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("unable to fetch latest block num: %w", err)
-		}
-		return blockNum, nil
-	})
+func (f *Fetcher) fetchLatestBlockNum(ctx context.Context, client *starknetRPC.Provider) (uint64, error) {
+	blockNum, err := client.BlockNumber(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch latest block num: %w", err)
+	}
+	return blockNum, nil
+
 }
 
-func (f *Fetcher) fetchLastL1AcceptBlock(ctx context.Context) (uint64, error) {
-	return firecoreRPC.WithClients(f.ethClients, func(client *ethRPC.Client) (uint64, error) {
+func (f *Fetcher) fetchLastL1AcceptBlock() (uint64, error) {
+	return firecoreRPC.WithClients(f.ethClients, func(ctx context.Context, client *ethRPC.Client) (uint64, error) {
 		blockNum, err := client.Call(ctx, f.ethCallLIBParams)
 		if err != nil {
 			return 0, fmt.Errorf("unable to fetch LIB: %w", err)
@@ -192,14 +179,12 @@ func (f *Fetcher) fetchLastL1AcceptBlock(ctx context.Context) (uint64, error) {
 	})
 }
 
-func FetchBlock(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
-	return firecoreRPC.WithClients(starknetClients, func(client *starknetRPC.Provider) (*starknetRPC.BlockWithReceipts, error) {
-		b, err := client.BlockWithReceipts(ctx, starknetRPC.WithBlockNumber(requestBlockNum))
-		if err != nil {
-			return nil, fmt.Errorf("unable to fetch block: %w", err)
-		}
-		return b.(*starknetRPC.BlockWithReceipts), nil
-	})
+func FetchBlock(ctx context.Context, client *starknetRPC.Provider, requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
+	b, err := client.BlockWithReceipts(ctx, starknetRPC.WithBlockNumber(requestBlockNum))
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch block: %w", err)
+	}
+	return b.(*starknetRPC.BlockWithReceipts), nil
 }
 
 func cleanBlockNum(blockNum string) string {

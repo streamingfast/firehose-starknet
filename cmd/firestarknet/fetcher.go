@@ -33,13 +33,13 @@ func NewFetchCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
 	cmd.Flags().Duration("interval-between-fetch", 0, "interval between fetch")
 	cmd.Flags().Duration("latest-block-retry-interval", time.Second, "interval between fetch")
 	cmd.Flags().Int("block-fetch-batch-size", 10, "Number of blocks to fetch in a single batch")
+	cmd.Flags().Duration("max-block-fetch-duration", 3*time.Second, "maximum delay before considering a block fetch as failed")
 
 	return cmd
 }
 
 func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecutor {
 	return func(cmd *cobra.Command, args []string) (err error) {
-		ctx := cmd.Context()
 		rpcEndpoints := sflags.MustGetStringArray(cmd, "starknet-endpoints")
 		ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
 		fetchLIBContractAddress := sflags.MustGetString(cmd, "fetch-lib-contract-address")
@@ -50,6 +50,7 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 		}
 
 		fetchInterval := sflags.MustGetDuration(cmd, "interval-between-fetch")
+		maxBlockFetchDuration := sflags.MustGetDuration(cmd, "max-block-fetch-duration")
 
 		logger.Info(
 			"launching firehose-starknet poller",
@@ -61,8 +62,9 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 		)
 
 		latestBlockRetryInterval := sflags.MustGetDuration(cmd, "latest-block-retry-interval")
+		rollingStrategy := firecoreRPC.NewStickyRollingStrategy[*starknetRPC.Provider]()
 
-		starknetClients := firecoreRPC.NewClients[*starknetRPC.Provider]()
+		starknetClients := firecoreRPC.NewClients[*starknetRPC.Provider](maxBlockFetchDuration, rollingStrategy, logger)
 		for _, rpcEndpoint := range rpcEndpoints {
 			client, err := starknetRPC.NewProvider(rpcEndpoint)
 			if err != nil {
@@ -71,21 +73,23 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 			starknetClients.Add(client)
 		}
 
-		ethClients := firecoreRPC.NewClients[*ethRPC.Client]()
+		ethRollingStrategy := firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client]()
+		ethClients := firecoreRPC.NewClients[*ethRPC.Client](maxBlockFetchDuration, ethRollingStrategy, logger)
 		for _, ethEndpoint := range ethEndpoints {
 			ethClients.Add(ethRPC.NewClient(ethEndpoint))
 		}
 
-		rpcFetcher := rpc.NewFetcher(starknetClients, ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
+		rpcFetcher := rpc.NewFetcher(ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
 
 		poller := blockpoller.New(
 			rpcFetcher,
 			blockpoller.NewFireBlockHandler("type.googleapis.com/sf.starknet.type.v1.Block"),
-			blockpoller.WithStoringState(stateDir),
-			blockpoller.WithLogger(logger),
+			starknetClients,
+			blockpoller.WithStoringState[*starknetRPC.Provider](stateDir),
+			blockpoller.WithLogger[*starknetRPC.Provider](logger),
 		)
 
-		err = poller.Run(ctx, startBlock, sflags.MustGetInt(cmd, "block-fetch-batch-size"))
+		err = poller.Run(startBlock, nil, sflags.MustGetInt(cmd, "block-fetch-batch-size"))
 		if err != nil {
 			return fmt.Errorf("running poller: %w", err)
 		}

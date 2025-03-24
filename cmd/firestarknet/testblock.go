@@ -50,20 +50,18 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	if err != nil {
 		return fmt.Errorf("creating starknet client: %w", err)
 	}
-	starknetClients := firecoreRPC.NewClients[*starknetRPC.Provider]()
-	starknetClients.Add(starknetClient)
 
-	ethClients := firecoreRPC.NewClients[*ethRPC.Client]()
+	ethClients := firecoreRPC.NewClients[*ethRPC.Client](1*time.Second, firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client](), logger)
 	ethClients.Add(ethRPC.NewClient(ethEndpoint))
 
 	l1ContractAddress := "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4"
-	fetcher := rpc.NewFetcher(starknetClients, ethClients, l1ContractAddress, time.Duration(0), time.Duration(0), logger)
+	fetcher := rpc.NewFetcher(ethClients, l1ContractAddress, time.Duration(0), time.Duration(0), logger)
 
 	// ---------------------------------------------------------
 	// SF BLOCK
 	// ---------------------------------------------------------
 
-	sfBlockData, sfStateUpdateData, err := sfBlockData(ctx, fetcher, blockNum)
+	sfBlockData, sfStateUpdateData, err := sfBlockData(ctx, starknetClient, fetcher, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching sf block: %w", err)
 	}
@@ -97,7 +95,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	// OG BLOCK
 	// ---------------------------------------------------------
 
-	ogBlockData, err := rpcBlockData(ctx, starknetClients, blockNum)
+	ogBlockData, err := rpcBlockData(ctx, starknetClient, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching rpc block: %w", err)
 	}
@@ -175,7 +173,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	// ---------------------------------------------------------
 	// OG State Update
 	// ---------------------------------------------------------
-	ogStateUpdate, err := rpcStateUpdateData(ctx, starknetClients, blockNum)
+	ogStateUpdate, err := rpcStateUpdateData(ctx, starknetClient, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching state update: %w", err)
 	}
@@ -209,8 +207,8 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	return nil
 }
 
-func sfBlockData(ctx context.Context, fetcher *rpc.Fetcher, blockNum uint64) ([]byte, []byte, error) {
-	bstreamBlock, _, err := fetcher.Fetch(ctx, blockNum)
+func sfBlockData(ctx context.Context, starknetClient *starknetRPC.Provider, fetcher *rpc.Fetcher, blockNum uint64) ([]byte, []byte, error) {
+	bstreamBlock, _, err := fetcher.Fetch(ctx, starknetClient, blockNum)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching block: %w", err)
 	}
@@ -231,8 +229,8 @@ func sfBlockData(ctx context.Context, fetcher *rpc.Fetcher, blockNum uint64) ([]
 	return blockData, stateUpdateData, nil
 }
 
-func rpcBlockData(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], blockNum uint64) ([]byte, error) {
-	block, err := rpc.FetchBlock(ctx, starknetClients, blockNum)
+func rpcBlockData(ctx context.Context, starknetClient *starknetRPC.Provider, blockNum uint64) ([]byte, error) {
+	block, err := rpc.FetchBlock(ctx, starknetClient, blockNum)
 	if err != nil {
 		return nil, fmt.Errorf("fetching block: %w", err)
 	}
@@ -249,8 +247,8 @@ func rpcBlockData(ctx context.Context, starknetClients *firecoreRPC.Clients[*sta
 	return data, nil
 }
 
-func rpcStateUpdateData(ctx context.Context, starknetClients *firecoreRPC.Clients[*starknetRPC.Provider], blockNum uint64) ([]byte, error) {
-	stateUpdate, err := rpc.FetchStateUpdate(ctx, starknetClients, blockNum)
+func rpcStateUpdateData(ctx context.Context, starknetClient *starknetRPC.Provider, blockNum uint64) ([]byte, error) {
+	stateUpdate, err := rpc.FetchStateUpdate(ctx, starknetClient, blockNum)
 	if err != nil {
 		return nil, fmt.Errorf("fetching block: %w", err)
 	}
