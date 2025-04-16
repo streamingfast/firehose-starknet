@@ -1,7 +1,8 @@
+.envrc
 /firestarknet
 /data
 .Idea
 .vscode
-devel/
 build/
 dist/
+firehose-data
