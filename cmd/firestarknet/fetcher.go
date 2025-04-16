@@ -20,7 +20,7 @@ import (
 
 var FetchCommand = Command(fetchE,
 	"fetch <first-streamable-block>",
-	"Fetch blocks from rpc endpoint",
+	"Fetch blocks from RPC endpoint and produce Firehose blocks for consumption by Firehose Core",
 	ExactArgs(1),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
