@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"time"
-
-	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
-	"github.com/streamingfast/firehose-starknet/rpc"
 
 	starknetRPC "github.com/NethermindEth/starknet.go/rpc"
 	"github.com/go-json-experiment/json"
@@ -17,28 +15,32 @@ import (
 	"github.com/hexops/gotextdiff/span"
 	"github.com/itchyny/gojq"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	. "github.com/streamingfast/cli"
 	ethRPC "github.com/streamingfast/eth-go/rpc"
 	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
-	"github.com/streamingfast/logging"
+	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
+	"github.com/streamingfast/firehose-starknet/rpc"
 	"github.com/tidwall/gjson"
-	"go.uber.org/zap"
 )
 
-func NewTestBlockCmd(logger *zap.Logger, tracer logging.Tracer) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "test-block",
-		Short: "Test block",
-		Args:  cobra.ExactArgs(3),
+var TestBlockCommand = Command(fetchE,
+	"test-block <first-streamable-block> <starknet-rpc-endpoint> <eth-mainnet-rpc-endpoint>",
+	"Test Starknet block fetcher",
+	ExactArgs(3),
+	Flags(func(flags *pflag.FlagSet) {
+		flags.StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
+		flags.StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
+		flags.String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum. For Starknet-Testnet, pass in 0xe2bb56ee936fd6433dc0f6e7e3b8365c906aa057")
+		flags.String("state-dir", "/data/poller", "interval between fetch")
+		flags.Duration("interval-between-fetch", 0, "interval between fetch")
+		flags.Duration("latest-block-retry-interval", time.Second, "interval between fetch")
+		flags.Int("block-fetch-batch-size", 10, "Number of blocks to fetch in a single batch")
+		flags.Duration("max-block-fetch-duration", 3*time.Second, "maximum delay before considering a block fetch as failed")
+	}),
+)
 
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return testBlock(cmd.Context(), logger, tracer, args)
-		},
-	}
-
-	return cmd
-}
-
-func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, args []string) error {
+func testBlockE(cmd *cobra.Command, args []string) error {
 	blockNum, err := strconv.ParseUint(args[0], 10, 64)
 	if err != nil {
 		return fmt.Errorf("parsing block number: %w", err)
@@ -61,7 +63,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	// SF BLOCK
 	// ---------------------------------------------------------
 
-	sfBlockData, sfStateUpdateData, err := sfBlockData(ctx, starknetClient, fetcher, blockNum)
+	sfBlockData, sfStateUpdateData, err := sfBlockData(cmd.Context(), starknetClient, fetcher, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching sf block: %w", err)
 	}
@@ -86,7 +88,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 		return fmt.Errorf("prettying sf block: %w", err)
 	}
 
-	err = ioutil.WriteFile("sf-block.json", sfBlockPretty, 0644)
+	err = os.WriteFile("sf-block.json", sfBlockPretty, 0644)
 	if err != nil {
 		return fmt.Errorf("writing sf block: %w", err)
 	}
@@ -95,7 +97,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	// OG BLOCK
 	// ---------------------------------------------------------
 
-	ogBlockData, err := rpcBlockData(ctx, starknetClient, blockNum)
+	ogBlockData, err := rpcBlockData(cmd.Context(), starknetClient, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching rpc block: %w", err)
 	}
@@ -115,7 +117,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 			.transactions[].deploy_account_transaction_v1.type,
 			.transactions[].deploy_account_transaction_v3.type,
             .transactions[].receipt.finality_status
-		
+
 			)`,
 		`(.. | select(type == "null")) |= ""`,
 		`del(.. | select(length == 0))`,
@@ -173,7 +175,7 @@ func testBlock(ctx context.Context, logger *zap.Logger, tracer logging.Tracer, a
 	// ---------------------------------------------------------
 	// OG State Update
 	// ---------------------------------------------------------
-	ogStateUpdate, err := rpcStateUpdateData(ctx, starknetClient, blockNum)
+	ogStateUpdate, err := rpcStateUpdateData(cmd.Context(), starknetClient, blockNum)
 	if err != nil {
 		return fmt.Errorf("fetching state update: %w", err)
 	}
