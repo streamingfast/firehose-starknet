@@ -37,6 +37,12 @@ jobs:
 
           echo "VERSION=${version} (Commit ${GITHUB_SHA::7}, Commit Date $(git show -s --format=%cI))" >> "$GITHUB_OUTPUT"
 
+      - name: Extract Firehose Core version
+        id: extract-firecore-version
+        run: |
+          docker pull ghcr.io/streamingfast/firehose-core:latest
+          echo VERSION=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' 'ghcr.io/streamingfast/firehose-core:latest') >> $GITHUB_ENV
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -65,7 +71,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            FIRECORE_VERSION=v1.9.8
+            FIRECORE_VERSION=${{ steps.extract-firecore-version.outputs.VERSION }}
             VERSION=${{ steps.extract-version.outputs.VERSION }}
 
   slack-notifications:
