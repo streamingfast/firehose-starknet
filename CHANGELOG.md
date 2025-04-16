@@ -6,7 +6,7 @@ for instructions to keep up to date.
 
 ## v1.0.0
 
-* First version.
+* First 1.0.0 version.
 
 ## v0.2.0
 
