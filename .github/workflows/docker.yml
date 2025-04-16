@@ -30,12 +30,12 @@ jobs:
       - name: Extract version
         id: extract-version
         run: |
-          version="edge"
+          version="edge-${GITHUB_SHA::7}"
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             version=${GITHUB_REF#refs/tags/}
           fi
 
-          echo "VERSION=${version} (Commit ${GITHUB_SHA::7}, Commit Date $(git show -s --format=%cI))" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Extract Firehose Core version
         id: extract-firecore-version
