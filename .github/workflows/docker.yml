@@ -41,7 +41,7 @@ jobs:
         id: extract-firecore-version
         run: |
           docker pull ghcr.io/streamingfast/firehose-core:latest
-          echo VERSION=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' 'ghcr.io/streamingfast/firehose-core:latest') >> $GITHUB_ENV
+          echo VERSION=$(docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' 'ghcr.io/streamingfast/firehose-core:latest') >> "$GITHUB_OUTPUT"
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
