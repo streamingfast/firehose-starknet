@@ -64,7 +64,7 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 		latestBlockRetryInterval := sflags.MustGetDuration(cmd, "latest-block-retry-interval")
 		rollingStrategy := firecoreRPC.NewStickyRollingStrategy[*starknetRPC.Provider]()
 
-		starknetClients := firecoreRPC.NewClients[*starknetRPC.Provider](maxBlockFetchDuration, rollingStrategy, logger)
+		starknetClients := firecoreRPC.NewClients(maxBlockFetchDuration, rollingStrategy, logger)
 		for _, rpcEndpoint := range rpcEndpoints {
 			client, err := starknetRPC.NewProvider(rpcEndpoint)
 			if err != nil {
@@ -74,7 +74,7 @@ func fetchRunE(logger *zap.Logger, tracer logging.Tracer) firecore.CommandExecut
 		}
 
 		ethRollingStrategy := firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client]()
-		ethClients := firecoreRPC.NewClients[*ethRPC.Client](maxBlockFetchDuration, ethRollingStrategy, logger)
+		ethClients := firecoreRPC.NewClients(maxBlockFetchDuration, ethRollingStrategy, logger)
 		for _, ethEndpoint := range ethEndpoints {
 			ethClients.Add(ethRPC.NewClient(ethEndpoint))
 		}

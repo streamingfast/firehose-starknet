@@ -13,12 +13,15 @@ import (
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/eth-go"
 	ethRPC "github.com/streamingfast/eth-go/rpc"
+	"github.com/streamingfast/firehose-core/blockpoller"
 	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
 	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+var _ blockpoller.BlockFetcher[*starknetRPC.Provider] = (*Fetcher)(nil)
 
 type Fetcher struct {
 	ethClients               *firecoreRPC.Clients[*ethRPC.Client]
@@ -52,7 +55,6 @@ func (f *Fetcher) IsBlockAvailable(blockNum uint64) bool {
 }
 
 func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, requestBlockNum uint64) (b *pbbstream.Block, skipped bool, err error) {
-
 	f.logger.Info("fetching block", zap.Uint64("block_num", requestBlockNum))
 
 	sleepDuration := time.Duration(0)
