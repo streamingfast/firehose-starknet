@@ -82,14 +82,16 @@ func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, reque
 	}
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
-	if f.lastL1AcceptedBlock == 0 || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
-		f.logger.Info("fetching last L1 accepted block")
-		lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock()
-		if err != nil {
-			return nil, false, fmt.Errorf("fetching LIB: %w", err)
+	if f.ethClients != nil {
+		if f.lastL1AcceptedBlock == 0 || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
+			f.logger.Info("fetching last L1 accepted block")
+			lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock()
+			if err != nil {
+				return nil, false, fmt.Errorf("fetching LIB: %w", err)
+			}
+			f.lastL1AcceptedBlock = lastL1AcceptedBlock
+			f.lastL1AcceptedBlockFetchTime = time.Now()
 		}
-		f.lastL1AcceptedBlock = lastL1AcceptedBlock
-		f.lastL1AcceptedBlockFetchTime = time.Now()
 	}
 
 	stateUpdate, err := FetchStateUpdate(ctx, client, requestBlockNum)
