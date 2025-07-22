@@ -24,7 +24,7 @@ var FetchCommand = Command(fetchE,
 	ExactArgs(1),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
-		flags.StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
+		flags.StringArray("eth-endpoints", nil, "List of Ethereum clients to use to fetch the LIB (optional)")
 		flags.String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum. For Starknet-Testnet, pass in 0xe2bb56ee936fd6433dc0f6e7e3b8365c906aa057")
 		flags.String("state-dir", "/data/poller", "interval between fetch")
 		flags.Duration("interval-between-fetch", 0, "interval between fetch")
@@ -37,6 +37,7 @@ var FetchCommand = Command(fetchE,
 func fetchE(cmd *cobra.Command, args []string) (err error) {
 	rpcEndpoints := sflags.MustGetStringArray(cmd, "starknet-endpoints")
 	ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
+
 	fetchLIBContractAddress := sflags.MustGetString(cmd, "fetch-lib-contract-address")
 	stateDir := sflags.MustGetString(cmd, "state-dir")
 	startBlock, err := strconv.ParseUint(args[0], 10, 64)
@@ -68,10 +69,13 @@ func fetchE(cmd *cobra.Command, args []string) (err error) {
 		starknetClients.Add(client)
 	}
 
-	ethRollingStrategy := firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client]()
-	ethClients := firecoreRPC.NewClients(maxBlockFetchDuration, ethRollingStrategy, logger)
-	for _, ethEndpoint := range ethEndpoints {
-		ethClients.Add(ethRPC.NewClient(ethEndpoint))
+	var ethClients *firecoreRPC.Clients[*ethRPC.Client]
+	if len(ethEndpoints) > 0 {
+		ethRollingStrategy := firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client]()
+		ethClients = firecoreRPC.NewClients(maxBlockFetchDuration, ethRollingStrategy, logger)
+		for _, ethEndpoint := range ethEndpoints {
+			ethClients.Add(ethRPC.NewClient(ethEndpoint))
+		}
 	}
 
 	rpcFetcher := rpc.NewFetcher(ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
