@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"time"
@@ -24,10 +23,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var TestBlockCommand = Command(fetchE,
-	"test-block <first-streamable-block> <starknet-rpc-endpoint> <eth-mainnet-rpc-endpoint>",
+var TestBlockCommand = Command(testBlockE,
+	"test-block <first-streamable-block> <starknet-rpc-endpoint> [<eth-mainnet-rpc-endpoint>]",
 	"Test Starknet block fetcher",
-	ExactArgs(3),
+	RangeArgs(2, 3),
 	Flags(func(flags *pflag.FlagSet) {
 		flags.StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
 		flags.StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
@@ -46,15 +45,21 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing block number: %w", err)
 	}
 	starknetEndpoint := args[1]
-	ethEndpoint := args[2]
+	ethEndpoint := ""
+	if len(args) > 2 {
+		ethEndpoint = args[2]
+	}
 
 	starknetClient, err := starknetRPC.NewProvider(starknetEndpoint)
 	if err != nil {
 		return fmt.Errorf("creating starknet client: %w", err)
 	}
 
-	ethClients := firecoreRPC.NewClients[*ethRPC.Client](1*time.Second, firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client](), logger)
-	ethClients.Add(ethRPC.NewClient(ethEndpoint))
+	var ethClients *firecoreRPC.Clients[*ethRPC.Client]
+	if ethEndpoint != "" {
+		ethClients = firecoreRPC.NewClients(1*time.Second, firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client](), logger)
+		ethClients.Add(ethRPC.NewClient(ethEndpoint))
+	}
 
 	l1ContractAddress := "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4"
 	fetcher := rpc.NewFetcher(ethClients, l1ContractAddress, time.Duration(0), time.Duration(0), logger)
@@ -134,7 +139,7 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("prettying og block: %w", err)
 	}
 
-	err = ioutil.WriteFile("og-block.json", ogBlockPretty, 0644)
+	err = os.WriteFile("og-block.json", ogBlockPretty, 0644)
 	if err != nil {
 		return fmt.Errorf("writing og block: %w", err)
 	}
@@ -167,7 +172,7 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("prettying sf block: %w", err)
 	}
 
-	err = ioutil.WriteFile("sf-state.json", sfStateUpdatePretty, 0644)
+	err = os.WriteFile("sf-state.json", sfStateUpdatePretty, 0644)
 	if err != nil {
 		return fmt.Errorf("writing sf state: %w", err)
 	}
@@ -185,12 +190,15 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 		`(.. | select(type == "null")) |= ""`,
 		`del(.. | select(length == 0))`,
 	}, ogStateUpdate)
+	if err != nil {
+		return fmt.Errorf("jqing og state: %w", err)
+	}
 
 	ogStateUpdatePretty, err := pretty(jqOgStateUpdate)
 	if err != nil {
-		return fmt.Errorf("prettying sf block: %w", err)
+		return fmt.Errorf("prettying og state: %w", err)
 	}
-	err = ioutil.WriteFile("og-state.json", ogStateUpdatePretty, 0644)
+	err = os.WriteFile("og-state.json", ogStateUpdatePretty, 0644)
 	if err != nil {
 		return fmt.Errorf("writing og state: %w", err)
 	}
@@ -222,6 +230,9 @@ func sfBlockData(ctx context.Context, starknetClient *starknetRPC.Provider, fetc
 	}
 
 	blockData, err := json.Marshal(block, jsonOptions...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshalling block: %w", err)
+	}
 
 	stateUpdateData, err := json.Marshal(block.StateUpdate, jsonOptions...)
 	if err != nil {

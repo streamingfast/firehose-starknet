@@ -7,3 +7,5 @@
 build/
 dist/
 firehose-data
+og-*.json
+sf-*.json

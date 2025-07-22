@@ -36,13 +36,13 @@ type Fetcher struct {
 }
 
 func NewFetcher(
-	ethClient *firecoreRPC.Clients[*ethRPC.Client],
+	ethClients *firecoreRPC.Clients[*ethRPC.Client],
 	fetchLIBContractAddress string,
 	fetchInterval time.Duration,
 	latestBlockRetryInterval time.Duration,
 	logger *zap.Logger) *Fetcher {
 	return &Fetcher{
-		ethClients:               ethClient,
+		ethClients:               ethClients,
 		fetchInterval:            fetchInterval,
 		latestBlockRetryInterval: latestBlockRetryInterval,
 		logger:                   logger,
