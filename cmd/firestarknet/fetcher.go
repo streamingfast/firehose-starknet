@@ -35,15 +35,15 @@ var FetchCommand = Command(fetchE,
 )
 
 func fetchE(cmd *cobra.Command, args []string) (err error) {
+	startBlock, err := strconv.ParseUint(args[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("unable to parse first streamable block %d: %w", startBlock, err)
+	}
 	rpcEndpoints := sflags.MustGetStringArray(cmd, "starknet-endpoints")
 	ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
 
 	fetchLIBContractAddress := sflags.MustGetString(cmd, "fetch-lib-contract-address")
 	stateDir := sflags.MustGetString(cmd, "state-dir")
-	startBlock, err := strconv.ParseUint(args[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("unable to parse first streamable block %d: %w", startBlock, err)
-	}
 
 	fetchInterval := sflags.MustGetDuration(cmd, "interval-between-fetch")
 	maxBlockFetchDuration := sflags.MustGetDuration(cmd, "max-block-fetch-duration")

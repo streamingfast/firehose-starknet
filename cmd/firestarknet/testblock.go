@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	. "github.com/streamingfast/cli"
+	"github.com/streamingfast/cli/sflags"
 	ethRPC "github.com/streamingfast/eth-go/rpc"
 	firecoreRPC "github.com/streamingfast/firehose-core/rpc"
 	pbstarknet "github.com/streamingfast/firehose-starknet/pb/sf/starknet/type/v1"
@@ -24,11 +25,10 @@ import (
 )
 
 var TestBlockCommand = Command(testBlockE,
-	"test-block <first-streamable-block> <starknet-rpc-endpoint> [<eth-mainnet-rpc-endpoint>]",
+	"test-block <first-streamable-block> <starknet-rpc-endpoint>",
 	"Test Starknet block fetcher",
-	RangeArgs(2, 3),
+	ExactArgs(2),
 	Flags(func(flags *pflag.FlagSet) {
-		flags.StringArray("starknet-endpoints", []string{""}, "List of endpoints to use to fetch different method calls")
 		flags.StringArray("eth-endpoints", []string{""}, "List of Ethereum clients to use to fetch the LIB")
 		flags.String("fetch-lib-contract-address", "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4", "The LIB contract address found on Ethereum. For Starknet-Testnet, pass in 0xe2bb56ee936fd6433dc0f6e7e3b8365c906aa057")
 		flags.String("state-dir", "/data/poller", "interval between fetch")
@@ -45,20 +45,20 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parsing block number: %w", err)
 	}
 	starknetEndpoint := args[1]
-	ethEndpoint := ""
-	if len(args) > 2 {
-		ethEndpoint = args[2]
-	}
 
 	starknetClient, err := starknetRPC.NewProvider(starknetEndpoint)
 	if err != nil {
 		return fmt.Errorf("creating starknet client: %w", err)
 	}
 
+	ethEndpoints := sflags.MustGetStringArray(cmd, "eth-endpoints")
+
 	var ethClients *firecoreRPC.Clients[*ethRPC.Client]
-	if ethEndpoint != "" {
+	if len(ethEndpoints) > 0 {
 		ethClients = firecoreRPC.NewClients(1*time.Second, firecoreRPC.NewStickyRollingStrategy[*ethRPC.Client](), logger)
-		ethClients.Add(ethRPC.NewClient(ethEndpoint))
+		for _, ethEndpoint := range ethEndpoints {
+			ethClients.Add(ethRPC.NewClient(ethEndpoint))
+		}
 	}
 
 	l1ContractAddress := "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4"
