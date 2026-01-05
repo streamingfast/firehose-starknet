@@ -31,6 +31,8 @@ var FetchCommand = Command(fetchE,
 		flags.Duration("latest-block-retry-interval", time.Second, "interval between fetch")
 		flags.Int("block-fetch-batch-size", 10, "Number of blocks to fetch in a single batch")
 		flags.Duration("max-block-fetch-duration", 3*time.Second, "maximum delay before considering a block fetch as failed")
+		flags.Uint64("default-lib-distance-to-head", 2000, "default distance between finalized block (LIB) and head, used if the eth-endpoints are not provided.")
+		flags.Uint64("max-lib-distance-to-head", 0, "max distance between finalized block (LIB) and head, will override the value provided by the eth endpoints (0 means disabled)")
 	}),
 )
 
@@ -55,7 +57,12 @@ func fetchE(cmd *cobra.Command, args []string) (err error) {
 		zap.Uint64("first_streamable_block", startBlock),
 		zap.Duration("interval_between_fetch", fetchInterval),
 		zap.Duration("latest_block_retry_interval", sflags.MustGetDuration(cmd, "latest-block-retry-interval")),
+		zap.Uint64("default_lib_distance_to_head", sflags.MustGetUint64(cmd, "default-lib-distance-to-head")),
+		zap.Uint64("max_lib_distance_to_head", sflags.MustGetUint64(cmd, "max-lib-distance-to-head")),
 	)
+
+	defaultLIBDistanceToHead := sflags.MustGetUint64(cmd, "default-lib-distance-to-head")
+	maxLIBDistanceToHead := sflags.MustGetUint64(cmd, "max-lib-distance-to-head")
 
 	latestBlockRetryInterval := sflags.MustGetDuration(cmd, "latest-block-retry-interval")
 	rollingStrategy := firecoreRPC.NewStickyRollingStrategy[*starknetRPC.Provider]()
@@ -78,7 +85,7 @@ func fetchE(cmd *cobra.Command, args []string) (err error) {
 		}
 	}
 
-	rpcFetcher := rpc.NewFetcher(ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, logger)
+	rpcFetcher := rpc.NewFetcher(ethClients, fetchLIBContractAddress, fetchInterval, latestBlockRetryInterval, defaultLIBDistanceToHead, maxLIBDistanceToHead, logger)
 
 	poller := blockpoller.New(
 		rpcFetcher,

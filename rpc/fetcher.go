@@ -28,10 +28,12 @@ type Fetcher struct {
 	fetchInterval            time.Duration
 	latestBlockRetryInterval time.Duration
 	logger                   *zap.Logger
+	defaultLIBDistanceToHead uint64
+	maxLIBDistanceToHead     uint64
 	latestBlockNum           uint64
 
 	ethCallLIBParams             ethRPC.CallParams
-	lastL1AcceptedBlock          uint64
+	lastL1AcceptedBlock          *uint64
 	lastL1AcceptedBlockFetchTime time.Time
 }
 
@@ -40,12 +42,16 @@ func NewFetcher(
 	fetchLIBContractAddress string,
 	fetchInterval time.Duration,
 	latestBlockRetryInterval time.Duration,
+	defaultLIBDistanceToHead uint64,
+	maxLIBDistanceToHead uint64,
 	logger *zap.Logger) *Fetcher {
 	return &Fetcher{
 		ethClients:               ethClients,
 		fetchInterval:            fetchInterval,
 		latestBlockRetryInterval: latestBlockRetryInterval,
 		logger:                   logger,
+		defaultLIBDistanceToHead: defaultLIBDistanceToHead,
+		maxLIBDistanceToHead:     maxLIBDistanceToHead,
 		ethCallLIBParams:         newEthCallLIBParams(fetchLIBContractAddress),
 	}
 }
@@ -83,7 +89,7 @@ func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, reque
 	f.logger.Debug("block fetched successfully", zap.Uint64("block_num", requestBlockNum))
 
 	if f.ethClients != nil {
-		if f.lastL1AcceptedBlock == 0 || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
+		if f.lastL1AcceptedBlock == nil || time.Since(f.lastL1AcceptedBlockFetchTime) > time.Minute*5 {
 			f.logger.Info("fetching last L1 accepted block")
 			lastL1AcceptedBlock, err := f.fetchLastL1AcceptBlock()
 			if err != nil {
@@ -100,7 +106,7 @@ func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, reque
 	}
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	libNum := calculateLIBNum(blockWithReceipts.BlockNumber, f.lastL1AcceptedBlock)
+	libNum := calculateLIBNum(blockWithReceipts.BlockNumber, f.lastL1AcceptedBlock, f.defaultLIBDistanceToHead, f.maxLIBDistanceToHead)
 	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, libNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
@@ -167,8 +173,8 @@ func (f *Fetcher) fetchLatestBlockNum(ctx context.Context, client *starknetRPC.P
 
 }
 
-func (f *Fetcher) fetchLastL1AcceptBlock() (uint64, error) {
-	return firecoreRPC.WithClients(f.ethClients, func(ctx context.Context, client *ethRPC.Client) (uint64, error) {
+func (f *Fetcher) fetchLastL1AcceptBlock() (*uint64, error) {
+	num, err := firecoreRPC.WithClients(f.ethClients, func(ctx context.Context, client *ethRPC.Client) (uint64, error) {
 		blockNum, err := client.Call(ctx, f.ethCallLIBParams)
 		if err != nil {
 			return 0, fmt.Errorf("unable to fetch LIB: %w", err)
@@ -182,6 +188,10 @@ func (f *Fetcher) fetchLastL1AcceptBlock() (uint64, error) {
 
 		return b, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &num, nil
 }
 
 func FetchBlock(ctx context.Context, client *starknetRPC.Provider, requestBlockNum uint64) (*starknetRPC.BlockWithReceipts, error) {
@@ -261,17 +271,41 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 }
 
 // calculateLIBNum calculates the Last Irreversible Block (LIB) number based on the current block number
-// and L1 accepted block. It handles overflow/underflow conditions safely.
-func calculateLIBNum(blockNumber, lastL1AcceptedBlock uint64) uint64 {
-	lib := lastL1AcceptedBlock
-	if blockNumber >= lib {
-		if blockNumber > 0 {
-			lib = blockNumber - 1
+// and various configuration parameters. It handles overflow/underflow conditions safely.
+func calculateLIBNum(blockNumber uint64, lastL1AcceptedBlock *uint64, defaultLIBDistanceToHead, maxLIBDistanceToHead uint64) uint64 {
+	var libNum uint64
+
+	if lastL1AcceptedBlock != nil {
+		// real finalized block, from eth endpoint call
+		libNum = *lastL1AcceptedBlock
+	} else {
+		// finalized block calculated from distance to head
+		if blockNumber > defaultLIBDistanceToHead {
+			libNum = blockNumber - defaultLIBDistanceToHead
 		} else {
-			lib = 0
+			libNum = 0
 		}
 	}
-	return lib
+
+	// safety, in case we have a "too recent" finalized block, it should always be below the current block number
+	if libNum > blockNumber {
+		if blockNumber > 0 {
+			libNum = blockNumber - 1
+		} else {
+			libNum = 0
+		}
+	}
+
+	// Limit lag of lib to maxLIBDistanceToHead
+	if maxLIBDistanceToHead != 0 && (blockNumber-libNum) > maxLIBDistanceToHead {
+		if blockNumber > maxLIBDistanceToHead {
+			libNum = blockNumber - maxLIBDistanceToHead
+		} else {
+			libNum = 0
+		}
+	}
+
+	return libNum
 }
 
 func convertStateUpdate(s *starknetRPC.StateUpdateOutput) *pbstarknet.StateUpdate {
