@@ -100,7 +100,8 @@ func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, reque
 	}
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, f.lastL1AcceptedBlock)
+	libNum := calculateLIBNum(blockWithReceipts.BlockNumber, f.lastL1AcceptedBlock)
+	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, libNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
 	}
@@ -205,15 +206,7 @@ func newEthCallLIBParams(contractAddress string) ethRPC.CallParams {
 	}
 }
 
-func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOutput, lastL1AcceptedBlock uint64) (*pbbstream.Block, error) {
-	lib := lastL1AcceptedBlock
-	if b.BlockNumber >= lib {
-		if b.BlockNumber > 0 {
-			lib = b.BlockNumber - 1
-		} else {
-			lib = 0
-		}
-	}
+func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOutput, libNum uint64) (*pbbstream.Block, error) {
 	stateUpdate := convertStateUpdate(s)
 	block := &pbstarknet.Block{
 		BlockHash:        convertFelt(b.BlockHash),
@@ -250,8 +243,6 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 		parentBlockNum = block.BlockNumber - 1
 	}
 
-	libNum := parentBlockNum
-
 	id := &felt.Felt{}
 	id = id.SetBytes(block.BlockHash)
 	parentId := &felt.Felt{}
@@ -267,6 +258,20 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 	}
 
 	return bstreamBlock, nil
+}
+
+// calculateLIBNum calculates the Last Irreversible Block (LIB) number based on the current block number
+// and L1 accepted block. It handles overflow/underflow conditions safely.
+func calculateLIBNum(blockNumber, lastL1AcceptedBlock uint64) uint64 {
+	lib := lastL1AcceptedBlock
+	if blockNumber >= lib {
+		if blockNumber > 0 {
+			lib = blockNumber - 1
+		} else {
+			lib = 0
+		}
+	}
+	return lib
 }
 
 func convertStateUpdate(s *starknetRPC.StateUpdateOutput) *pbstarknet.StateUpdate {
