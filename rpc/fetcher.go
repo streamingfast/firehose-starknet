@@ -106,7 +106,7 @@ func (f *Fetcher) Fetch(ctx context.Context, client *starknetRPC.Provider, reque
 	}
 
 	f.logger.Info("converting block", zap.Uint64("block_num", requestBlockNum))
-	libNum := calculateLIBNum(blockWithReceipts.BlockNumber, f.lastL1AcceptedBlock, f.defaultLIBDistanceToHead, f.maxLIBDistanceToHead)
+	libNum := calculateLIBNum(blockWithReceipts.BlockNumber, f.lastL1AcceptedBlock, f.defaultLIBDistanceToHead, f.maxLIBDistanceToHead, f.logger)
 	bstreamBlock, err := convertBlock(blockWithReceipts, stateUpdate, libNum)
 	if err != nil {
 		return nil, false, fmt.Errorf("converting block %d from rpc response: %w", requestBlockNum, err)
@@ -189,8 +189,10 @@ func (f *Fetcher) fetchLastL1AcceptBlock() (*uint64, error) {
 		return b, nil
 	})
 	if err != nil {
+		f.logger.Warn("couldn't get last finalized block from L1", zap.Error(err))
 		return nil, err
 	}
+	f.logger.Info("got last finalized block from L1", zap.Uint64("lib", num))
 	return &num, nil
 }
 
@@ -272,7 +274,7 @@ func convertBlock(b *starknetRPC.BlockWithReceipts, s *starknetRPC.StateUpdateOu
 
 // calculateLIBNum calculates the Last Irreversible Block (LIB) number based on the current block number
 // and various configuration parameters. It handles overflow/underflow conditions safely.
-func calculateLIBNum(blockNumber uint64, lastL1AcceptedBlock *uint64, defaultLIBDistanceToHead, maxLIBDistanceToHead uint64) uint64 {
+func calculateLIBNum(blockNumber uint64, lastL1AcceptedBlock *uint64, defaultLIBDistanceToHead, maxLIBDistanceToHead uint64, logger *zap.Logger) uint64 {
 	var libNum uint64
 
 	if lastL1AcceptedBlock != nil {
@@ -298,6 +300,19 @@ func calculateLIBNum(blockNumber uint64, lastL1AcceptedBlock *uint64, defaultLIB
 
 	// Limit lag of lib to maxLIBDistanceToHead
 	if maxLIBDistanceToHead != 0 && (blockNumber-libNum) > maxLIBDistanceToHead {
+		msg := "capping LIB distance to head"
+		fields := []zap.Field{
+			zap.Uint64("block_number", blockNumber),
+			zap.Uint64("distance_to_head", blockNumber-libNum),
+			zap.Uint64("max_lib_distance_to_head", maxLIBDistanceToHead),
+		}
+		if blockNumber%100 == 0 {
+			msg += " (logged every 100 blk)"
+			logger.Info(msg, fields...)
+		} else {
+			logger.Debug(msg, fields...)
+		}
+
 		if blockNumber > maxLIBDistanceToHead {
 			libNum = blockNumber - maxLIBDistanceToHead
 		} else {

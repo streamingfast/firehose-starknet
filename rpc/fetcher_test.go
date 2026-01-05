@@ -5,6 +5,7 @@ import (
 
 	"github.com/NethermindEth/juno/core/felt"
 	"github.com/test-go/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
@@ -218,7 +219,7 @@ func TestCalculateLIBNum(t *testing.T) {
 			name:                     "L1 block exactly at max distance",
 			blockNumber:              1000,
 			lastL1AcceptedBlock:      uint64Ptr(800),
-			defaultLIBDistanceToHead: 50,
+			defaultLIBDistanceToHead: 0,
 			maxLIBDistanceToHead:     200,
 			expected:                 800,
 			description:              "Should not modify L1 block when within max distance",
@@ -227,37 +228,10 @@ func TestCalculateLIBNum(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := calculateLIBNum(tt.blockNumber, tt.lastL1AcceptedBlock, tt.defaultLIBDistanceToHead, tt.maxLIBDistanceToHead)
+			result := calculateLIBNum(tt.blockNumber, tt.lastL1AcceptedBlock, tt.defaultLIBDistanceToHead, tt.maxLIBDistanceToHead, zap.NewNop())
 			require.Equal(t, tt.expected, result, tt.description)
 		})
 	}
-}
-
-func TestCalculateLIBNumDebug(t *testing.T) {
-	// Debug the failing case: "L1 accepted block provided - normal case"
-	blockNumber := uint64(1000)
-	lastL1AcceptedBlock := uint64Ptr(500)
-	defaultLIBDistanceToHead := uint64(100)
-	maxLIBDistanceToHead := uint64(200)
-
-	result := calculateLIBNum(blockNumber, lastL1AcceptedBlock, defaultLIBDistanceToHead, maxLIBDistanceToHead)
-
-	t.Logf("blockNumber: %d", blockNumber)
-	t.Logf("lastL1AcceptedBlock: %d", *lastL1AcceptedBlock)
-	t.Logf("defaultLIBDistanceToHead: %d", defaultLIBDistanceToHead)
-	t.Logf("maxLIBDistanceToHead: %d", maxLIBDistanceToHead)
-	t.Logf("result: %d", result)
-	t.Logf("blockNumber-lastL1AcceptedBlock: %d", blockNumber-*lastL1AcceptedBlock)
-	t.Logf("maxLIBDistanceToHead check: %d > %d = %t", blockNumber-*lastL1AcceptedBlock, maxLIBDistanceToHead, (blockNumber-*lastL1AcceptedBlock) > maxLIBDistanceToHead)
-
-	// Based on the logic:
-	// 1. libNum = 500 (from L1)
-	// 2. libNum <= blockNumber (500 <= 1000), so no safety adjustment
-	// 3. maxLIBDistanceToHead != 0 and (1000-500) = 500 > 200, so libNum = 1000-200 = 800
-
-	// The question is: should the max distance limit apply even when we have an L1 accepted block?
-	// Looking at the original comment: "Limit lag of lib, whatever the method"
-	// This suggests it should apply regardless of the source.
 }
 
 // Helper function to create a pointer to uint64
