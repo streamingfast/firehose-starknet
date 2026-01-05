@@ -9,12 +9,12 @@ main() {
   set -e
 
   pushd "$ROOT" &> /dev/null
-    version="unknown"
+    version="${VERSION:-"edge"}"
     if [[ -f .version ]]; then
       version=`cat .version`
     fi
 
-    go install -ldflags "-X main.Version=$version" ./cmd/"$binary_name"
+    go install -ldflags "-X 'main.version=$version'" ./cmd/"$binary_name"
   popd &> /dev/null
 
   if [[ $KILL_AFTER != "" ]]; then

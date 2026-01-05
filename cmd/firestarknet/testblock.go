@@ -62,7 +62,7 @@ func testBlockE(cmd *cobra.Command, args []string) error {
 	}
 
 	l1ContractAddress := "0xc662c410c0ecf747543f5ba90660f6abebd9c8c4"
-	fetcher := rpc.NewFetcher(ethClients, l1ContractAddress, time.Duration(0), time.Duration(0), logger)
+	fetcher := rpc.NewFetcher(ethClients, l1ContractAddress, time.Duration(0), time.Duration(0), 2000, 5000, logger)
 
 	// ---------------------------------------------------------
 	// SF BLOCK

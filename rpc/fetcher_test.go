@@ -5,6 +5,7 @@ import (
 
 	"github.com/NethermindEth/juno/core/felt"
 	"github.com/test-go/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 )
@@ -40,6 +41,202 @@ func Test_LIBNumConvertion(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCalculateLIBNum(t *testing.T) {
+	tests := []struct {
+		name                     string
+		blockNumber              uint64
+		lastL1AcceptedBlock      *uint64
+		defaultLIBDistanceToHead uint64
+		maxLIBDistanceToHead     uint64
+		expected                 uint64
+		description              string
+	}{
+		// Basic cases with L1 accepted block
+		{
+			name:                     "L1 accepted block provided - normal case",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      uint64Ptr(500),
+			defaultLIBDistanceToHead: 0,
+			maxLIBDistanceToHead:     0,
+			expected:                 500,
+			description:              "Should use L1 accepted block when provided",
+		},
+		{
+			name:                     "L1 accepted block provided - within max LIB",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      uint64Ptr(500),
+			defaultLIBDistanceToHead: 123,
+			maxLIBDistanceToHead:     600,
+			expected:                 500,
+			description:              "Should use L1 accepted block when provided within max LIB",
+		},
+		{
+			name:                     "L1 accepted block newer than current - underflow protection",
+			blockNumber:              100,
+			lastL1AcceptedBlock:      uint64Ptr(200),
+			defaultLIBDistanceToHead: 50,
+			maxLIBDistanceToHead:     100,
+			expected:                 99,
+			description:              "Should cap to blockNumber-1 when L1 block is newer",
+		},
+		{
+			name:                     "L1 accepted block newer than current - block 0 edge case",
+			blockNumber:              0,
+			lastL1AcceptedBlock:      uint64Ptr(100),
+			defaultLIBDistanceToHead: 50,
+			maxLIBDistanceToHead:     100,
+			expected:                 0,
+			description:              "Should handle block 0 without underflow",
+		},
+		{
+			name:                     "L1 accepted block with max distance limit",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      uint64Ptr(100),
+			defaultLIBDistanceToHead: 50,
+			maxLIBDistanceToHead:     200,
+			expected:                 800,
+			description:              "Should apply max distance limit even with L1 block",
+		},
+
+		// Cases without L1 accepted block (using default distance)
+		{
+			name:                     "Default distance - normal case",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     200,
+			expected:                 900,
+			description:              "Should subtract default distance from block number",
+		},
+		{
+			name:                     "Default distance - underflow protection",
+			blockNumber:              50,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     200,
+			expected:                 0,
+			description:              "Should return 0 when default distance > block number",
+		},
+		{
+			name:                     "Default distance - exact match",
+			blockNumber:              100,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     200,
+			expected:                 0,
+			description:              "Should return 0 when default distance equals block number",
+		},
+		{
+			name:                     "Default distance - block 0",
+			blockNumber:              0,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     200,
+			expected:                 0,
+			description:              "Should return 0 for block 0",
+		},
+
+		// Max distance limit cases
+		{
+			name:                     "Max distance limit applied",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     50,
+			expected:                 950,
+			description:              "Should apply max distance limit",
+		},
+		{
+			name:                     "Max distance limit - underflow protection",
+			blockNumber:              50,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 200,
+			maxLIBDistanceToHead:     100,
+			expected:                 0,
+			description:              "Should return 0 when max distance > block number",
+		},
+		{
+			name:                     "Max distance limit disabled",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 50,
+			maxLIBDistanceToHead:     0,
+			expected:                 950,
+			description:              "Should ignore max distance when set to 0",
+		},
+		{
+			name:                     "Max distance equal to block number",
+			blockNumber:              100,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 100,
+			maxLIBDistanceToHead:     100,
+			expected:                 0,
+			description:              "Should return 0 when max distance equals block number",
+		},
+
+		// Edge cases with maximum uint64 values
+		{
+			name:                     "Maximum uint64 block number",
+			blockNumber:              ^uint64(0), // Maximum uint64
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 1000,
+			maxLIBDistanceToHead:     2000,
+			expected:                 ^uint64(0) - 1000,
+			description:              "Should handle maximum uint64 values without overflow",
+		},
+		{
+			name:                     "Maximum uint64 with L1 block",
+			blockNumber:              ^uint64(0),
+			lastL1AcceptedBlock:      uint64Ptr(^uint64(0) - 500),
+			defaultLIBDistanceToHead: 1000,
+			maxLIBDistanceToHead:     2000,
+			expected:                 ^uint64(0) - 500,
+			description:              "Should handle maximum uint64 L1 block",
+		},
+		{
+			name:                     "Large numbers - no underflow",
+			blockNumber:              1000000000000,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 999999999999,
+			maxLIBDistanceToHead:     0,
+			expected:                 1,
+			description:              "Should handle large numbers correctly",
+		},
+
+		// Complex scenarios
+		{
+			name:                     "All parameters at boundary values",
+			blockNumber:              1,
+			lastL1AcceptedBlock:      nil,
+			defaultLIBDistanceToHead: 1,
+			maxLIBDistanceToHead:     1,
+			expected:                 0,
+			description:              "Should handle boundary conditions",
+		},
+		{
+			name:                     "L1 block exactly at max distance",
+			blockNumber:              1000,
+			lastL1AcceptedBlock:      uint64Ptr(800),
+			defaultLIBDistanceToHead: 0,
+			maxLIBDistanceToHead:     200,
+			expected:                 800,
+			description:              "Should not modify L1 block when within max distance",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateLIBNum(tt.blockNumber, tt.lastL1AcceptedBlock, tt.defaultLIBDistanceToHead, tt.maxLIBDistanceToHead, zap.NewNop())
+			require.Equal(t, tt.expected, result, tt.description)
+		})
+	}
+}
+
+// Helper function to create a pointer to uint64
+func uint64Ptr(val uint64) *uint64 {
+	return &val
 }
 
 func TestConvertFelt(t *testing.T) {
